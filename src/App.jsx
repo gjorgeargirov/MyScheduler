@@ -2268,7 +2268,7 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
       {isLoading && <LoadingOverlay message="AI is organizing your schedule..." />}
       
       {/* Toast Container */}
-      <div className="fixed top-4 right-4 z-[60] pointer-events-none space-y-2">
+      <div className="fixed top-16 sm:top-4 right-2 sm:right-4 left-2 sm:left-auto z-[60] pointer-events-none space-y-2 max-w-[calc(100vw-1rem)] sm:max-w-sm">
         {toasts.map(t => (
           <div key={t.id} className="pointer-events-auto"><Toast {...t} onClose={() => setToasts(p => p.filter(x => x.id !== t.id))} /></div>
         ))}
@@ -2276,15 +2276,15 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
 
       {/* Top Header Bar */}
       <header className="sticky top-0 z-40 bg-white/80 dark:bg-slate-900/80 backdrop-blur-lg border-b border-slate-200/60 dark:border-slate-700/60 shadow-sm">
-        <div className="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-6">
+        <div className="max-w-[1920px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0 py-3 sm:py-0 sm:h-16">
+            <div className="flex items-center gap-3 sm:gap-6">
           <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-slate-900 to-slate-700 dark:from-slate-100 dark:to-slate-300 flex items-center justify-center">
-                  <Sparkles size={18} className="text-white dark:text-slate-900" />
+                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-slate-900 to-slate-700 dark:from-slate-100 dark:to-slate-300 flex items-center justify-center">
+                  <Sparkles size={16} className="sm:w-[18px] sm:h-[18px] text-white dark:text-slate-900" />
                 </div>
           <div>
-                  <h1 className="text-xl font-semibold text-slate-900 dark:text-white tracking-tight">
+                  <h1 className="text-lg sm:text-xl font-semibold text-slate-900 dark:text-white tracking-tight">
                     FocusBoard
                   </h1>
                   <p className="text-xs text-slate-500 dark:text-slate-400 hidden sm:block mt-0.5">Daily planner & project tracker</p>
@@ -2292,56 +2292,56 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
           </div>
               
               {/* Navigation Tabs */}
-              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded-md p-1 border border-slate-200 dark:border-slate-700">
+              <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-100 dark:bg-slate-800 rounded-md p-0.5 sm:p-1 border border-slate-200 dark:border-slate-700">
                 <button
                   onClick={() => setActivePage('calendar')}
-                  className={`px-3 py-1.5 rounded text-sm font-medium transition-all ${
+                  className={`px-2.5 sm:px-3 py-1.5 rounded text-xs sm:text-sm font-medium transition-all ${
                     activePage === 'calendar'
                       ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
-                  <div className="flex items-center gap-1.5">
-                    <CalendarIcon size={15} />
-                    <span>Calendar</span>
+                  <div className="flex items-center gap-1 sm:gap-1.5">
+                    <CalendarIcon size={14} className="sm:w-[15px] sm:h-[15px]" />
+                    <span className="hidden xs:inline sm:inline">Calendar</span>
                   </div>
             </button>
                 <button
                   onClick={() => setActivePage('tasks')}
-                  className={`px-3 py-1.5 rounded text-sm font-medium transition-all ${
+                  className={`px-2.5 sm:px-3 py-1.5 rounded text-xs sm:text-sm font-medium transition-all ${
                     activePage === 'tasks'
                       ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
-                  <div className="flex items-center gap-1.5">
-                    <Folder size={15} />
-                    <span>Tasks</span>
+                  <div className="flex items-center gap-1 sm:gap-1.5">
+                    <Folder size={14} className="sm:w-[15px] sm:h-[15px]" />
+                    <span className="hidden xs:inline sm:inline">Tasks</span>
                   </div>
                 </button>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <button 
                 onClick={() => {
                   const newValue = !darkMode;
                   console.log('Dark mode toggle: changing from', darkMode, 'to', newValue);
                   setDarkMode(newValue);
                 }}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-sm font-medium text-slate-700 dark:text-slate-300"
+                className="flex items-center justify-center w-9 h-9 sm:w-auto sm:h-auto sm:gap-2 px-2 sm:px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-sm font-medium text-slate-700 dark:text-slate-300"
                 title={darkMode ? 'Light mode' : 'Dark mode'}
                 type="button"
               >
-                {darkMode ? <Sun size={16} /> : <Moon size={16} />}
+                {darkMode ? <Sun size={18} className="sm:w-4 sm:h-4" /> : <Moon size={18} className="sm:w-4 sm:h-4" />}
               </button>
               {activePage === 'calendar' && (
                 <>
                   <button
                     onClick={() => setShowCalendarIntegration(true)}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 text-sm font-medium transition-colors"
+                    className="flex items-center justify-center sm:justify-start gap-1.5 px-2.5 sm:px-3 py-2 rounded-md bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 text-sm font-medium transition-colors min-w-[44px] sm:min-w-0"
                     title="Import from Outlook/Google Calendar"
                   >
-                    <CalendarIcon size={15} />
+                    <CalendarIcon size={16} className="sm:w-[15px] sm:h-[15px]" />
                     <span className="hidden sm:inline">Import</span>
                   </button>
                   <button 
@@ -2349,9 +2349,9 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
                       setNewMeetingProject(projects.length > 0 ? projects[0].id : 1);
                       setShowMeetingForm(true);
                     }} 
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-slate-200 text-white dark:text-slate-900 text-sm font-medium transition-colors"
+                    className="flex items-center justify-center sm:justify-start gap-1.5 px-2.5 sm:px-3 py-2 rounded-md bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-slate-200 text-white dark:text-slate-900 text-sm font-medium transition-colors min-w-[44px] sm:min-w-0"
                   >
-                    <Plus size={15} />
+                    <Plus size={16} className="sm:w-[15px] sm:h-[15px]" />
                     <span className="hidden sm:inline">Meeting</span>
                   </button>
                 </>
@@ -2394,35 +2394,35 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
         />
 
       {/* Main Content */}
-      <div className="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="max-w-[1920px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6">
         
         {/* Calendar Page */}
         {activePage === 'calendar' && (
           <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-          <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-white dark:bg-slate-800">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-slate-100 dark:bg-slate-700 rounded-md">
-                <CalendarIcon className="text-slate-700 dark:text-slate-300" size={18} />
+          <div className="p-3 sm:p-4 border-b border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0 bg-white dark:bg-slate-800">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="p-1.5 sm:p-2 bg-slate-100 dark:bg-slate-700 rounded-md">
+                <CalendarIcon className="text-slate-700 dark:text-slate-300 w-4 h-4 sm:w-[18px] sm:h-[18px]" />
               </div>
-              <div className="flex items-center gap-3">
-                <div>
-                  <h2 className="font-bold text-lg text-slate-900 dark:text-white">
+              <div className="flex items-center gap-2 sm:gap-3 flex-1">
+                <div className="flex-1 min-w-0">
+                  <h2 className="font-bold text-base sm:text-lg text-slate-900 dark:text-white truncate">
                     {isToday(selectedDate) ? "Today's Schedule" : "Schedule"}
                   </h2>
                   <p className="text-xs text-slate-500 dark:text-slate-400">{formatDate(selectedDate)}</p>
                 </div>
                 {/* Date Navigation */}
-                <div className="flex items-center gap-1 ml-2">
+                <div className="flex items-center gap-0.5 sm:gap-1">
                 <button 
                     onClick={() => navigateDate(-1)}
-                    className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                    className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center"
                     title="Previous day"
                   >
-                    <ChevronLeft size={16} className="text-slate-600 dark:text-slate-300" />
+                    <ChevronLeft size={18} className="sm:w-4 sm:h-4 text-slate-600 dark:text-slate-300" />
                   </button>
                   <button
                     onClick={goToToday}
-                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    className={`px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-medium transition-colors min-h-[44px] sm:min-h-0 ${
                       isToday(selectedDate)
                         ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
                         : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
@@ -2432,15 +2432,15 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
                   </button>
                   <button
                     onClick={() => navigateDate(1)}
-                    className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                    className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center"
                     title="Next day"
                   >
-                    <ChevronRight size={16} className="text-slate-600 dark:text-slate-300" />
+                    <ChevronRight size={18} className="sm:w-4 sm:h-4 text-slate-600 dark:text-slate-300" />
                   </button>
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
               <ExportImport
                 projects={projects}
                 tasks={tasks}
@@ -2462,16 +2462,16 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
               />
               <button 
                 onClick={() => setShowChatBot(true)}
-                className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md transition-colors text-sm font-medium"
+                className="flex items-center justify-center sm:justify-start gap-1.5 px-2.5 sm:px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md transition-colors text-sm font-medium min-w-[44px] sm:min-w-0 min-h-[44px] sm:min-h-0"
                 title="Chat with AI about calendar preferences"
               >
-                <Bot size={15} />
+                <Bot size={16} className="sm:w-[15px] sm:h-[15px]" />
                 <span className="hidden sm:inline">AI Assistant</span>
               </button>
               <button 
                 onClick={generateSchedule}
                 disabled={isLoading}
-                className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-slate-200 text-white dark:text-slate-900 rounded-md transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center justify-center sm:justify-start gap-1.5 px-2.5 sm:px-3 py-2 bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-slate-200 text-white dark:text-slate-900 rounded-md transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed min-w-[44px] sm:min-w-0 min-h-[44px] sm:min-h-0"
                 title="AI Generate Schedule"
               >
                 {isLoading ? (
@@ -2481,7 +2481,7 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
                   </>
                 ) : (
                   <>
-                    <Wand2 size={15} />
+                    <Wand2 size={16} className="sm:w-[15px] sm:h-[15px]" />
                     <span className="hidden sm:inline">Auto Schedule</span>
                   </>
                 )}
@@ -2489,15 +2489,15 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
             </div>
           </div>
 
-          <div className="h-[calc(100vh-280px)] min-h-[500px] overflow-y-auto relative bg-white dark:bg-slate-800 calendar-container pt-4">
+          <div className="h-[calc(100vh-240px)] sm:h-[calc(100vh-280px)] min-h-[400px] sm:min-h-[500px] overflow-y-auto relative bg-white dark:bg-slate-800 calendar-container pt-4">
             {/* Time Indicators */}
-            <div className="absolute top-4 left-0 bottom-0 w-16 border-r border-slate-100 dark:border-slate-700 bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm z-10">
+            <div className="absolute top-4 left-0 bottom-0 w-12 sm:w-16 border-r border-slate-100 dark:border-slate-700 bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm z-10">
               {Array.from({ length: workdayEnd - workdayStart }).map((_, i) => {
                 const hour = workdayStart + i;
                 const isLastHour = hour === workdayEnd - 1;
                 return (
                   <div key={i} className={`h-[80px] border-b relative group ${isLastHour ? 'border-slate-300 dark:border-slate-600' : 'border-transparent'}`}>
-                    <span className="absolute top-0 right-2 text-xs text-slate-500 dark:text-slate-400 font-medium transition-colors">
+                    <span className="absolute top-0 right-1 sm:right-2 text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium transition-colors">
                       {hour}:00
                     </span>
                     <div className="absolute right-0 top-0 w-1 h-px bg-slate-200 dark:bg-slate-700"></div>
@@ -2520,7 +2520,7 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
             {/* Current Time Line */}
             {currentHour >= workdayStart && currentHour <= workdayEnd && (
               <div 
-                className="absolute left-16 right-0 z-30 pointer-events-none"
+                className="absolute left-12 sm:left-16 right-0 z-30 pointer-events-none"
                 style={{ top: `${currentTop}px` }}
               >
                 {/* Red line across the calendar */}
@@ -2536,7 +2536,7 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
 
             {/* Events Layer */}
             <div 
-              className="absolute top-4 left-16 right-0 bottom-0"
+              className="absolute top-4 left-12 sm:left-16 right-0 bottom-0"
               onDragOver={handleCalendarDragOver}
               onDrop={handleCalendarDrop}
               onDragLeave={handleCalendarDragLeave}

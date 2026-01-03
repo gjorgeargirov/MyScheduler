@@ -42,3 +42,16 @@
     display: inline;
   }
 }
+
+/* Mobile-specific improvements */
+@media (max-width: 640px) {
+  /* Ensure proper spacing on mobile */
+  body {
+    -webkit-text-size-adjust: 100%;
+  }
+  
+  /* Better touch targets */
+  input, select, textarea {
+    font-size: 16px; /* Prevents zoom on iOS */
+  }
+}
