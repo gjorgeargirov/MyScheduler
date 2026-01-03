@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .animate-in { animation: fadeIn 0.2s ease-out; }
+  .slide-in-from-right-5 { animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideIn {
+  from { transform: translateX(20px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* Cleaner Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* Mobile responsiveness improvements */
+@media (max-width: 640px) {
+  .calendar-container {
+    padding-top: 0.5rem;
+  }
+}
+
+/* Touch-friendly tap targets for mobile */
+@media (hover: none) and (pointer: coarse) {
+  button, a, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* Extra small breakpoint for very small screens */
+@media (max-width: 475px) {
+  .xs\:inline {
+    display: inline;
+  }
+}
