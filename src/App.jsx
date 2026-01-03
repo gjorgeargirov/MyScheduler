@@ -30,14 +30,16 @@ import {
   Send,
   RotateCcw,
   Sparkles,
-  RefreshCw
+  RefreshCw,
+  LogIn,
+  LogOut,
+  User
 } from 'lucide-react';
 
 // Import extracted components and utilities
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { Toast } from './components/Common/Toast';
 import { LoadingOverlay } from './components/Common/LoadingSpinner';
-import { ExportImport } from './components/Common/ExportImport';
 import { ProjectModal } from './components/Forms/ProjectModal';
 import { CalendarIntegration } from './components/Calendar/CalendarIntegration';
 import { 
@@ -50,6 +52,10 @@ import {
   isOverdue,
   isDueSoon
 } from './utils/dateHelpers';
+import { getUserId } from './utils/userId';
+import { getStorageItem, setStorageItem } from './utils/storage';
+import { useAuth } from './contexts/AuthContext';
+import { useNavigate, Link } from 'react-router-dom';
 
 // Module-level counter for unique ID generation
 let globalIdCounter = 0;
@@ -57,27 +63,37 @@ let globalIdCounter = 0;
 const AIKanbanScheduler = () => {
   console.log('AIKanbanScheduler component rendering...');
   
+  // Authentication
+  const { user, signOut, isAuthenticated, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
+  
+  // Get user ID for data isolation - use authenticated user ID if logged in, otherwise browser ID
+  const browserUserId = getUserId();
+  const userId = isAuthenticated && user ? `user_${user.id}` : browserUserId;
+  const getUserKey = useCallback((key) => `${userId}_${key}`, [userId]);
+  
   // --- State with localStorage persistence ---
+  // Use authenticated user ID if logged in, otherwise browser ID
   const [projects, setProjects] = useLocalStorage('focusboard_projects', [
     { id: 1, name: 'Website Redesign', color: 'bg-blue-500' },
     { id: 2, name: 'Mobile App', color: 'bg-indigo-500' },
     { id: 3, name: 'Marketing', color: 'bg-purple-500' },
     { id: 4, name: 'Internal Tools', color: 'bg-orange-500' },
-  ]);
+  ], userId);
 
   const [tasks, setTasks] = useLocalStorage('focusboard_tasks', [
     { id: 1, title: 'Design landing page', status: 'backlog', duration: 2, priority: 'high', projectId: 1, notes: '', dueDate: null },
     { id: 2, title: 'Review code PR', status: 'in-progress', duration: 1, priority: 'medium', projectId: 2, notes: '', dueDate: null },
     { id: 3, title: 'Write documentation', status: 'in-progress', duration: 1.5, priority: 'low', projectId: 1, notes: '', dueDate: null },
     { id: 4, title: 'Team standup', status: 'done', duration: 0.5, priority: 'high', projectId: 3, notes: '', dueDate: null },
-  ]);
+  ], userId);
 
   const [meetings, setMeetings] = useLocalStorage('focusboard_meetings', [
     { id: 1, title: 'Team Standup', start: '09:00', duration: 0.5, projectId: 3 },
     { id: 2, title: 'Client Call', start: '14:00', duration: 1, projectId: 1 },
-  ]);
+  ], userId);
 
-  const [schedule, setSchedule] = useLocalStorage('focusboard_schedule', []);
+  const [schedule, setSchedule] = useLocalStorage('focusboard_schedule', [], userId);
   
   // Migrate existing schedule items to have unique IDs and dates (run once on mount)
   useEffect(() => {
@@ -251,24 +267,42 @@ const AIKanbanScheduler = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate, schedule, tasks]);
 
-  // Dark mode - using regular useState with manual localStorage sync
-  const [darkMode, setDarkMode] = useState(() => {
-    try {
-      const stored = window.localStorage.getItem('focusboard_darkMode');
-      return stored ? JSON.parse(stored) : false;
-    } catch {
-      return false;
-    }
-  });
+  // Dark mode - using IndexedDB storage
+  const [darkMode, setDarkMode] = useState(false);
+  const darkModeLoaded = useRef(false);
 
-  // Sync dark mode to localStorage
+  // Load dark mode from IndexedDB on mount
   useEffect(() => {
-    try {
-      window.localStorage.setItem('focusboard_darkMode', JSON.stringify(darkMode));
-    } catch (error) {
-      console.error('Error saving dark mode:', error);
+    let isMounted = true;
+    
+    const loadDarkMode = async () => {
+      try {
+        const stored = await getStorageItem(getUserKey('focusboard_darkMode'));
+        if (isMounted && stored !== null) {
+          setDarkMode(stored);
+        }
+        darkModeLoaded.current = true;
+      } catch (error) {
+        console.error('Error loading dark mode:', error);
+        darkModeLoaded.current = true;
+      }
+    };
+
+    loadDarkMode();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [userId, getUserKey]);
+
+  // Save dark mode to IndexedDB
+  useEffect(() => {
+    if (darkModeLoaded.current) {
+      setStorageItem(getUserKey('focusboard_darkMode'), darkMode).catch(error => {
+        console.error('Error saving dark mode:', error);
+      });
     }
-  }, [darkMode]);
+  }, [darkMode, userId, getUserKey]);
 
   // Task details modal
   const [selectedTask, setSelectedTask] = useState(null);
@@ -277,46 +311,83 @@ const AIKanbanScheduler = () => {
 
   // LLM Chat Bot
   const [showChatBot, setShowChatBot] = useState(false);
-  const [chatMessages, setChatMessages] = useState(() => {
-    try {
-      const stored = window.localStorage.getItem('focusboard_chatMessages');
-      return stored ? JSON.parse(stored) : [
-        { role: 'assistant', content: 'Hi! I\'m your AI calendar assistant. Tell me about your scheduling preferences and I\'ll help organize your day better. For example, you can say "I prefer to do deep work in the morning" or "Schedule meetings after 2 PM".' }
-      ];
-    } catch {
-      return [
-        { role: 'assistant', content: 'Hi! I\'m your AI calendar assistant. Tell me about your scheduling preferences and I\'ll help organize your day better. For example, you can say "I prefer to do deep work in the morning" or "Schedule meetings after 2 PM".' }
-      ];
-    }
-  });
+  const defaultChatMessages = [
+    { role: 'assistant', content: 'Hi! I\'m your AI calendar assistant. Tell me about your scheduling preferences and I\'ll help organize your day better. For example, you can say "I prefer to do deep work in the morning" or "Schedule meetings after 2 PM".' }
+  ];
+  
+  const [chatMessages, setChatMessages] = useState(defaultChatMessages);
+  const chatMessagesLoaded = useRef(false);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
-  const [userPreferences, setUserPreferences] = useState(() => {
-    try {
-      const stored = window.localStorage.getItem('focusboard_preferences');
-      return stored ? JSON.parse(stored) : '';
-    } catch {
-      return '';
-    }
-  });
+  
+  const [userPreferences, setUserPreferences] = useState('');
+  const preferencesLoaded = useRef(false);
 
-  // Save chat messages to localStorage
+  // Load chat messages from IndexedDB on mount
   useEffect(() => {
-    try {
-      window.localStorage.setItem('focusboard_chatMessages', JSON.stringify(chatMessages));
-    } catch (error) {
-      console.error('Error saving chat messages:', error);
-    }
-  }, [chatMessages]);
+    let isMounted = true;
+    
+    const loadChatMessages = async () => {
+      try {
+        const stored = await getStorageItem(getUserKey('focusboard_chatMessages'));
+        if (isMounted) {
+          setChatMessages(stored || defaultChatMessages);
+        }
+        chatMessagesLoaded.current = true;
+      } catch (error) {
+        console.error('Error loading chat messages:', error);
+        chatMessagesLoaded.current = true;
+      }
+    };
 
-  // Save preferences to localStorage
+    loadChatMessages();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [userId, getUserKey]);
+
+  // Load preferences from IndexedDB on mount
   useEffect(() => {
-    try {
-      window.localStorage.setItem('focusboard_preferences', JSON.stringify(userPreferences));
-    } catch (error) {
-      console.error('Error saving preferences:', error);
+    let isMounted = true;
+    
+    const loadPreferences = async () => {
+      try {
+        const stored = await getStorageItem(getUserKey('focusboard_preferences'));
+        if (isMounted && stored) {
+          setUserPreferences(stored);
+        }
+        preferencesLoaded.current = true;
+      } catch (error) {
+        console.error('Error loading preferences:', error);
+        preferencesLoaded.current = true;
+      }
+    };
+
+    loadPreferences();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [userId, getUserKey]);
+
+  // Save chat messages to IndexedDB
+  useEffect(() => {
+    if (chatMessagesLoaded.current) {
+      setStorageItem(getUserKey('focusboard_chatMessages'), chatMessages).catch(error => {
+        console.error('Error saving chat messages:', error);
+      });
     }
-  }, [userPreferences]);
+  }, [chatMessages, userId, getUserKey]);
+
+  // Save preferences to IndexedDB
+  useEffect(() => {
+    if (preferencesLoaded.current) {
+      setStorageItem(getUserKey('focusboard_preferences'), userPreferences).catch(error => {
+        console.error('Error saving preferences:', error);
+      });
+    }
+  }, [userPreferences, userId, getUserKey]);
 
   // Drag & Drop State
   const [draggedTaskId, setDraggedTaskId] = useState(null);
@@ -324,6 +395,24 @@ const AIKanbanScheduler = () => {
   const [draggedScheduleItem, setDraggedScheduleItem] = useState(null);
   const [dragOverColumn, setDragOverColumn] = useState(null);
   const [dragOverTimeSlot, setDragOverTimeSlot] = useState(null);
+  
+  // Touch drag state for mobile
+  const [touchDragState, setTouchDragState] = useState({
+    isDragging: false,
+    startX: 0,
+    startY: 0,
+    currentX: 0,
+    currentY: 0,
+    element: null,
+    type: null, // 'task', 'meeting', 'schedule'
+    id: null
+  });
+  const touchDragStateRef = useRef(touchDragState);
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    touchDragStateRef.current = touchDragState;
+  }, [touchDragState]);
 
   // Time & Config
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -2048,14 +2137,170 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
     }
   };
 
-  // Calculate hour from mouse position
+  // Calculate hour from mouse/touch position
   const getHourFromPosition = (e, container) => {
     const rect = container.getBoundingClientRect();
-    const y = e.clientY - rect.top;
+    // Support both mouse and touch events
+    const y = (e.clientY || (e.touches && e.touches[0]?.clientY) || e.changedTouches?.[0]?.clientY) - rect.top;
     const hourOffset = y / 80; // Each hour is 80px
     const hour = workdayStart + hourOffset;
     return Math.max(workdayStart, Math.min(workdayEnd - 0.5, Math.floor(hour * 2) / 2)); // Round to nearest 0.5 hour
   };
+  
+  // Touch event handlers for mobile drag and drop
+  const handleTouchStart = (e, type, id) => {
+    const touch = e.touches[0];
+    if (!touch) return;
+    
+    e.preventDefault();
+    setTouchDragState({
+      isDragging: true,
+      startX: touch.clientX,
+      startY: touch.clientY,
+      currentX: touch.clientX,
+      currentY: touch.clientY,
+      element: e.currentTarget,
+      type: type,
+      id: id
+    });
+    
+    // Set the dragged item based on type
+    if (type === 'task') {
+      setDraggedTaskId(id);
+    } else if (type === 'meeting') {
+      setDraggedMeetingId(id);
+    } else if (type === 'schedule') {
+      setDraggedScheduleItem(id);
+    }
+    
+    // Add visual feedback
+    e.currentTarget.style.opacity = '0.5';
+    e.currentTarget.style.transform = 'scale(0.95)';
+  };
+  
+  const handleTouchMove = useCallback((e) => {
+    const state = touchDragStateRef.current;
+    if (!state.isDragging) return;
+    
+    const touch = e.touches[0];
+    if (!touch) return;
+    
+    e.preventDefault();
+    
+    setTouchDragState(prev => ({
+      ...prev,
+      currentX: touch.clientX,
+      currentY: touch.clientY
+    }));
+    
+    // Update drag over column for kanban
+    if (state.type === 'task') {
+      const elementBelow = document.elementFromPoint(touch.clientX, touch.clientY);
+      if (elementBelow) {
+        const columnElement = elementBelow.closest('[data-column-id]');
+        if (columnElement) {
+          const columnId = columnElement.getAttribute('data-column-id');
+          setDragOverColumn(columnId);
+        }
+      }
+    }
+    
+    // Update drag over time slot for calendar
+    const container = document.querySelector('.calendar-container');
+    if (container) {
+      const rect = container.getBoundingClientRect();
+      if (touch.clientX >= rect.left && touch.clientX <= rect.right &&
+          touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
+        const y = touch.clientY - rect.top;
+        const hourOffset = y / 80;
+        const hour = workdayStart + hourOffset;
+        const roundedHour = Math.max(workdayStart, Math.min(workdayEnd - 0.5, Math.floor(hour * 2) / 2));
+        setDragOverTimeSlot(roundedHour);
+      }
+    }
+  }, [workdayStart, workdayEnd]);
+  
+  const handleTouchEnd = useCallback((e) => {
+    const state = touchDragStateRef.current;
+    if (!state.isDragging) return;
+    
+    const touch = e.changedTouches[0];
+    if (!touch) {
+      resetTouchDrag();
+      return;
+    }
+    
+    e.preventDefault();
+    
+    // Restore element appearance
+    if (state.element) {
+      state.element.style.opacity = '';
+      state.element.style.transform = '';
+    }
+    
+    // Handle drop for kanban columns
+    if (state.type === 'task') {
+      const elementBelow = document.elementFromPoint(touch.clientX, touch.clientY);
+      if (elementBelow) {
+        const columnElement = elementBelow.closest('[data-column-id]');
+        if (columnElement) {
+          const columnId = columnElement.getAttribute('data-column-id');
+          if (columnId && state.id) {
+            moveTask(state.id, columnId);
+            showToast('Task moved!');
+          }
+        }
+      }
+    }
+    
+    // Handle drop for calendar
+    const container = document.querySelector('.calendar-container');
+    if (container) {
+      const rect = container.getBoundingClientRect();
+      if (touch.clientX >= rect.left && touch.clientX <= rect.right &&
+          touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
+        // Create a synthetic event for the drop handler
+        const syntheticEvent = {
+          clientY: touch.clientY,
+          clientX: touch.clientX,
+          preventDefault: () => {},
+          stopPropagation: () => {}
+        };
+        handleCalendarDrop(syntheticEvent);
+      }
+    }
+    
+    resetTouchDrag();
+  }, [moveTask, showToast]);
+  
+  const resetTouchDrag = () => {
+    setTouchDragState({
+      isDragging: false,
+      startX: 0,
+      startY: 0,
+      currentX: 0,
+      currentY: 0,
+      element: null,
+      type: null,
+      id: null
+    });
+    resetDragState();
+  };
+  
+  // Add global touch move listener when dragging
+  useEffect(() => {
+    if (touchDragState.isDragging) {
+      document.addEventListener('touchmove', handleTouchMove, { passive: false });
+      document.addEventListener('touchend', handleTouchEnd, { passive: false });
+      document.addEventListener('touchcancel', resetTouchDrag, { passive: false });
+      
+      return () => {
+        document.removeEventListener('touchmove', handleTouchMove);
+        document.removeEventListener('touchend', handleTouchEnd);
+        document.removeEventListener('touchcancel', resetTouchDrag);
+      };
+    }
+  }, [touchDragState.isDragging, handleTouchMove, handleTouchEnd]);
 
   // Drag task to calendar
   const handleCalendarDragOver = (e) => {
@@ -2441,25 +2686,38 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
               </div>
             </div>
             <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-              <ExportImport
-                projects={projects}
-                tasks={tasks}
-                meetings={meetings}
-                schedule={schedule}
-                chatMessages={chatMessages}
-                userPreferences={userPreferences}
-                onImport={(data) => {
-                  if (window.confirm('Import will replace all current data. Continue?')) {
-                    setProjects(data.projects || []);
-                    setTasks(data.tasks || []);
-                    setMeetings(data.meetings || []);
-                    setSchedule(data.schedule || []);
-                    setChatMessages(data.chatMessages || []);
-                    setUserPreferences(data.userPreferences || '');
-                  }
-                }}
-                showToast={showToast}
-              />
+              {isAuthenticated ? (
+                <div className="flex items-center gap-2 px-2.5 sm:px-3 py-2 bg-slate-50 dark:bg-slate-700 rounded-md border border-slate-200 dark:border-slate-600">
+                  <User size={16} className="sm:w-[15px] sm:h-[15px] text-slate-600 dark:text-slate-300" />
+                  <span className="hidden sm:inline text-sm font-medium text-slate-700 dark:text-slate-300">{user?.name || user?.email}</span>
+                  <button
+                    onClick={signOut}
+                    className="ml-1 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 transition-colors"
+                    title="Sign out"
+                  >
+                    <LogOut size={14} />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <Link
+                    to="/signup"
+                    className="flex items-center justify-center sm:justify-start gap-1.5 px-2.5 sm:px-3 py-2 bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-slate-200 text-white dark:text-slate-900 rounded-md transition-colors text-sm font-medium min-w-[44px] sm:min-w-0 min-h-[44px] sm:min-h-0"
+                    title="Create account"
+                  >
+                    <User size={16} className="sm:w-[15px] sm:h-[15px]" />
+                    <span className="hidden sm:inline">Sign Up</span>
+                  </Link>
+                  <button
+                    onClick={() => navigate('/signin')}
+                    className="flex items-center justify-center sm:justify-start gap-1.5 px-2.5 sm:px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md transition-colors text-sm font-medium min-w-[44px] sm:min-w-0 min-h-[44px] sm:min-h-0"
+                    title="Sign in to sync data"
+                  >
+                    <LogIn size={16} className="sm:w-[15px] sm:h-[15px]" />
+                    <span className="hidden sm:inline">Sign In</span>
+                  </button>
+                </>
+              )}
               <button 
                 onClick={() => setShowChatBot(true)}
                 className="flex items-center justify-center sm:justify-start gap-1.5 px-2.5 sm:px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md transition-colors text-sm font-medium min-w-[44px] sm:min-w-0 min-h-[44px] sm:min-h-0"
@@ -2599,6 +2857,7 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
                       draggable={!cannotDrag}
                       onDragStart={e => !cannotDrag && handleMeetingDragStart(e, m.id)}
                       onDragEnd={handleDragEnd}
+                      onTouchStart={e => !cannotDrag && handleTouchStart(e, 'meeting', m.id)}
                       className={`absolute left-4 right-6 rounded-lg bg-gradient-to-br from-slate-800 to-slate-900 dark:from-slate-700 dark:to-slate-800 text-white shadow-lg transition-all group overflow-hidden ${
                         cannotDrag 
                           ? 'opacity-50 grayscale cursor-not-allowed' 
@@ -2713,6 +2972,7 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
                       draggable={!cannotDrag}
                       onDragStart={e => !cannotDrag && handleScheduleItemDragStart(e, item.taskId)}
                       onDragEnd={handleDragEnd}
+                      onTouchStart={e => !cannotDrag && handleTouchStart(e, 'schedule', item.taskId)}
                       className={`absolute left-4 right-6 rounded-lg bg-gradient-to-br from-white to-slate-50 dark:from-slate-700 dark:to-slate-800 shadow-md border transition-all group ${
                         cannotDrag 
                           ? 'opacity-50 grayscale cursor-not-allowed' 
@@ -2980,7 +3240,8 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
                 
                 return (
                 <div 
-                  key={col.id} 
+                  key={col.id}
+                  data-column-id={col.id}
                   onDragOver={e => handleDragOver(e, col.id)}
                   onDrop={e => handleDrop(e, col.id)}
                   className={`rounded-xl p-4 min-h-[400px] transition-all border-2 ${
@@ -3093,6 +3354,7 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
                           draggable
                           onDragStart={e => handleDragStart(e, task.id)}
                           onDragEnd={handleDragEnd}
+                          onTouchStart={e => handleTouchStart(e, 'task', task.id)}
                           className={`
                             group relative bg-gradient-to-br from-white to-slate-50 dark:from-slate-700 dark:to-slate-800 p-3.5 rounded-xl shadow-md border border-slate-200 dark:border-slate-600
                             hover:shadow-lg hover:border-slate-300 dark:hover:border-slate-500 transition-all cursor-grab active:cursor-grabbing

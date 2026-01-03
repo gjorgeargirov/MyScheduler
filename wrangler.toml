@@ -3,3 +3,12 @@ compatibility_date = "2026-01-03"
 
 [assets]
 directory = "./dist"
+
+# D1 Database for user accounts
+[[d1_databases]]
+binding = "DB"
+database_name = "my-scheduler-db"
+database_id = "your-database-id-here"  # Replace with your actual D1 database ID
+
+[vars]
+JWT_SECRET = "your-secret-key-here"  # Replace with a strong random secret
