@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Calendar as CalendarIcon,
   Clock,
@@ -55,6 +55,8 @@ import {
 let globalIdCounter = 0;
 
 const AIKanbanScheduler = () => {
+  console.log('AIKanbanScheduler component rendering...');
+  
   // --- State with localStorage persistence ---
   const [projects, setProjects] = useLocalStorage('focusboard_projects', [
     { id: 1, name: 'Website Redesign', color: 'bg-blue-500' },
@@ -105,6 +107,7 @@ const AIKanbanScheduler = () => {
   }, []);
   const [toasts, setToasts] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState('default');
   
   // Forms
   const [showTaskForm, setShowTaskForm] = useState(false);
@@ -326,11 +329,176 @@ const AIKanbanScheduler = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const workdayStart = 8;
   const workdayEnd = 18;
+  
+  // Track which reminders have been shown (to avoid duplicates) - using ref to avoid infinite loops
+  const shownRemindersRef = useRef(new Set());
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
+
+  // --- Helpers (defined early so they can be used in useEffects) ---
+  // Note: These functions use setToasts and setNotificationPermission which are defined above
+  
+  const showToast = useCallback((message, type = 'success') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
+  }, []);
+
+  // Show browser/desktop notification
+  const showBrowserNotification = useCallback((title, message) => {
+    if (!('Notification' in window)) {
+      return; // Browser doesn't support notifications
+    }
+
+    // Request permission if not granted
+    if (Notification.permission === 'default') {
+      Notification.requestPermission().then(permission => {
+        setNotificationPermission(permission);
+        if (permission === 'granted') {
+          new Notification(title, {
+            body: message,
+            icon: '/vite.svg', // You can add a custom icon later
+            badge: '/vite.svg',
+            tag: 'reminder', // Prevents duplicate notifications
+            requireInteraction: false
+          });
+        }
+      });
+    } else if (Notification.permission === 'granted') {
+      new Notification(title, {
+        body: message,
+        icon: '/vite.svg',
+        badge: '/vite.svg',
+        tag: 'reminder',
+        requireInteraction: false
+      });
+    }
+  }, []);
+  
+  // Reminder system: Check for upcoming tasks/meetings 10 minutes before
+  useEffect(() => {
+    const checkReminders = () => {
+      const now = new Date();
+      const currentHour = now.getHours() + now.getMinutes() / 60;
+      const todayStr = formatDateForStorage(now);
+      const reminderMinutes = 10; // 10 minutes before
+      const reminderHours = reminderMinutes / 60; // Convert to hours
+      
+      // Get all scheduled items for today
+      const todaySchedule = schedule.filter(s => (s.date || todayStr) === todayStr);
+      const todayMeetings = meetings.filter(m => {
+        // Check if meeting should appear today (handles recurring meetings)
+        if (m.repeatDays) {
+          const today = new Date(todayStr + 'T00:00:00');
+          const dayOfWeek = today.getDay();
+          const dayMap = {
+            monday: 1,
+            tuesday: 2,
+            wednesday: 3,
+            thursday: 4,
+            friday: 5
+          };
+          const dayName = Object.keys(dayMap).find(key => dayMap[key] === dayOfWeek);
+          return dayName ? m.repeatDays[dayName] : false;
+        }
+        return (m.date || todayStr) === todayStr;
+      });
+      
+      // Combine tasks and meetings with their start times
+      const upcomingItems = [];
+      
+      // Add tasks
+      todaySchedule.forEach(item => {
+        const task = tasks.find(t => t.id === item.taskId);
+        if (task) {
+          const startHours = timeToHours(item.start);
+          const timeUntilStart = startHours - currentHour;
+          
+          // Check if it's between 10 and 9 minutes before (within the 10-minute reminder window)
+          // This gives us a 1-minute window to catch the reminder
+          const minTime = reminderHours - 0.017; // ~9 minutes (0.15 hours - 0.017 = ~0.133 hours)
+          const maxTime = reminderHours + 0.017; // ~11 minutes (0.15 hours + 0.017 = ~0.167 hours)
+          
+          if (timeUntilStart > 0 && timeUntilStart >= minTime && timeUntilStart <= maxTime) {
+            upcomingItems.push({
+              id: `task-${item.taskId}-${item.start}`,
+              type: 'task',
+              title: task.title,
+              start: item.start,
+              startHours: startHours
+            });
+          }
+        }
+      });
+      
+      // Add meetings
+      todayMeetings.forEach(m => {
+        const startHours = timeToHours(m.start);
+        const timeUntilStart = startHours - currentHour;
+        
+        // Check if it's between 10 and 9 minutes before (within the 10-minute reminder window)
+        const minTime = reminderHours - 0.017; // ~9 minutes
+        const maxTime = reminderHours + 0.017; // ~11 minutes
+        
+        if (timeUntilStart > 0 && timeUntilStart >= minTime && timeUntilStart <= maxTime) {
+          upcomingItems.push({
+            id: `meeting-${m.id}-${m.start}`,
+            type: 'meeting',
+            title: m.title,
+            start: m.start,
+            startHours: startHours
+          });
+        }
+      });
+      
+      // Show reminders for items we haven't shown yet
+      upcomingItems.forEach(item => {
+        if (!shownRemindersRef.current.has(item.id)) {
+          const itemType = item.type === 'task' ? 'Task' : 'Meeting';
+          const minutesUntil = Math.round((item.startHours - currentHour) * 60);
+          const message = `${itemType} "${item.title}" starts in ${minutesUntil} minutes at ${item.start}`;
+          
+          // Show toast notification (in-page)
+          showToast(`⏰ ${message}`, 'info');
+          
+          // Show browser/desktop notification
+          showBrowserNotification(`⏰ Reminder: ${itemType} starting soon`, message);
+          
+          // Add to shown reminders
+          shownRemindersRef.current.add(item.id);
+        }
+      });
+      
+      // Clean up old reminders (for items that have already started) to prevent memory buildup
+      const cleaned = new Set();
+      shownRemindersRef.current.forEach(id => {
+        // Parse the ID to get the start time
+        const parts = id.split('-');
+        if (parts.length >= 3) {
+          const startTime = parts[parts.length - 1]; // Last part is the start time
+          const startHours = timeToHours(startTime);
+          // Keep reminders for items that haven't started yet or started less than 1 hour ago
+          if (startHours >= currentHour - 1) {
+            cleaned.add(id);
+          }
+        } else {
+          // If we can't parse, keep it (better safe than sorry)
+          cleaned.add(id);
+        }
+      });
+      shownRemindersRef.current = cleaned;
+    };
+    
+    // Check immediately and then every minute
+    checkReminders();
+    const reminderTimer = setInterval(checkReminders, 60000); // Check every minute
+    
+    return () => clearInterval(reminderTimer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTime, schedule, meetings, tasks]);
 
   // Apply dark mode - runs on mount and when darkMode changes
   useEffect(() => {
@@ -353,13 +521,13 @@ const AIKanbanScheduler = () => {
     console.log(`Dark mode: ${darkMode}, HTML classes: ${html.className}, Body classes: ${body.className}`);
   }, [darkMode]);
 
-  // --- Helpers ---
-
-  const showToast = (message, type = 'success') => {
-    const id = Date.now();
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
-  };
+  // Request notification permission on mount (but don't be pushy)
+  useEffect(() => {
+    if ('Notification' in window) {
+      const permission = Notification.permission;
+      setNotificationPermission(permission);
+    }
+  }, []);
 
   const getProject = useCallback((id) => {
     // Handle null, undefined, or 0
@@ -2092,6 +2260,8 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
     return schedule.filter(s => (s.date || todayStr) === selectedDateStr);
   }, [schedule, selectedDateStr, todayStr]);
 
+  console.log('AIKanbanScheduler about to render JSX');
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans selection:bg-slate-200 dark:selection:bg-slate-700">
       {/* Loading Overlay */}
@@ -2410,23 +2580,40 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
                   const conflict = checkMeetingConflict(m.start, m.duration, m.id);
                   const isDragging = draggedMeetingId === m.id;
                   const project = getProject(m.projectId || 1);
+                  
+                  // Check if meeting time has passed or starts within 30 minutes (only for today's date)
+                  const isToday = selectedDateStr === todayStr;
+                  const startHours = timeToHours(m.start);
+                  const endHours = startHours + m.duration;
+                  const meetingEndTime = endHours;
+                  const timeUntilStart = startHours - currentHour;
+                  const isTimePassed = isToday && meetingEndTime < currentHour;
+                  const isOngoing = isToday && currentHour >= startHours && currentHour < endHours;
+                  const isStartingSoon = isToday && timeUntilStart > 0 && timeUntilStart <= 0.5; // 30 minutes = 0.5 hours
+                  // Allow dragging if ongoing, otherwise disable if time passed or starting soon (but not started yet)
+                  const cannotDrag = isTimePassed || (isStartingSoon && currentHour < startHours);
+                  
                   return (
                     <div 
                       key={m.id}
-                      draggable
-                      onDragStart={e => handleMeetingDragStart(e, m.id)}
+                      draggable={!cannotDrag}
+                      onDragStart={e => !cannotDrag && handleMeetingDragStart(e, m.id)}
                       onDragEnd={handleDragEnd}
-                      className={`absolute left-4 right-6 rounded-lg bg-gradient-to-br from-slate-800 to-slate-900 dark:from-slate-700 dark:to-slate-800 text-white shadow-lg hover:z-30 transition-all group overflow-hidden cursor-move hover:shadow-xl hover:shadow-slate-900/20 ${
+                      className={`absolute left-4 right-6 rounded-lg bg-gradient-to-br from-slate-800 to-slate-900 dark:from-slate-700 dark:to-slate-800 text-white shadow-lg transition-all group overflow-hidden ${
+                        cannotDrag 
+                          ? 'opacity-50 grayscale cursor-not-allowed' 
+                          : 'hover:z-30 cursor-move hover:shadow-xl hover:shadow-slate-900/20 hover:scale-[1.02]'
+                      } ${
                         conflict.conflict ? 'ring-2 ring-red-400/50' : ''
-                      } ${isDragging ? 'opacity-50 scale-95' : 'hover:scale-[1.02]'} ${
+                      } ${isDragging ? 'opacity-50 scale-95' : ''} ${
                         m.duration < 1 ? 'p-1.5' : 'p-3'
                       }`}
-                      title="Meeting - Drag to reschedule"
+                      title={isTimePassed ? "Meeting time has passed" : isOngoing ? "Meeting in progress - Drag to reschedule" : isStartingSoon ? "Meeting starts within 30 minutes - cannot reschedule" : "Meeting - Drag to reschedule"}
                       style={{
                         top: `${(timeToHours(m.start) - workdayStart) * 80}px`,
                         height: `${Math.max(m.duration * 80, 40)}px`,
                         minHeight: '40px',
-                        borderLeft: `4px solid ${conflict.conflict ? '#f87171' : colorToHex(project.color)}`,
+                        borderLeft: `4px solid ${cannotDrag ? '#9ca3af' : (conflict.conflict ? '#f87171' : colorToHex(project.color))}`,
                         boxShadow: conflict.conflict ? '0 4px 6px -1px rgba(239, 68, 68, 0.3)' : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
                       }}
                     >
@@ -2436,56 +2623,58 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
                       <div className="relative flex justify-between items-center h-full gap-2">
                         <div className="overflow-hidden flex-1 min-w-0 flex items-center gap-2 flex-wrap">
                           <div className="flex items-center gap-1.5 flex-shrink-0">
-                            <div className="p-1 rounded-md bg-slate-700/50 dark:bg-slate-600/50">
-                              <Users size={m.duration < 1 ? 11 : 13} className="text-slate-200" />
+                            <div className={`p-1 rounded-md ${isTimePassed ? 'bg-slate-700/30 dark:bg-slate-600/30' : 'bg-slate-700/50 dark:bg-slate-600/50'}`}>
+                              <Users size={m.duration < 1 ? 11 : 13} className={isTimePassed ? 'text-slate-400' : 'text-slate-200'} />
                             </div>
-                            <span className={`font-semibold text-slate-100 bg-slate-700/60 dark:bg-slate-600/60 px-1.5 py-0.5 rounded-md uppercase tracking-wide flex-shrink-0 ${m.duration < 1 ? 'text-[8px]' : 'text-[9px]'}`}>Meeting</span>
+                            <span className={`font-semibold ${isTimePassed ? 'text-slate-400 bg-slate-700/30 dark:bg-slate-600/30' : 'text-slate-100 bg-slate-700/60 dark:bg-slate-600/60'} px-1.5 py-0.5 rounded-md uppercase tracking-wide flex-shrink-0 ${m.duration < 1 ? 'text-[8px]' : 'text-[9px]'}`}>Meeting</span>
                           </div>
-                          <p className={`font-semibold truncate flex-1 min-w-0 ${m.duration < 1 ? 'text-xs' : 'text-xs md:text-sm'}`}>{m.title}</p>
+                          <p className={`font-semibold ${isTimePassed ? 'text-slate-400' : 'text-white'} truncate flex-1 min-w-0 ${m.duration < 1 ? 'text-xs' : 'text-xs md:text-sm'}`}>{m.title}</p>
                           <div className="flex items-center gap-1 flex-shrink-0">
-                            <Clock size={m.duration < 1 ? 9 : 10} className="text-slate-300 opacity-70" />
+                            <Clock size={m.duration < 1 ? 9 : 10} className={isTimePassed ? 'text-slate-400 opacity-50' : 'text-slate-300 opacity-70'} />
                             {(() => {
                               const startHours = timeToHours(m.start);
                               const endHours = startHours + m.duration;
                               const endTime = hoursToTime(endHours);
                               return (
-                                <p className={`text-slate-300 opacity-90 font-medium ${m.duration < 1 ? 'text-[9px]' : 'text-[10px]'}`}>{m.start} - {endTime}</p>
+                                <p className={`${isTimePassed ? 'text-slate-400 opacity-60' : 'text-slate-300 opacity-90'} font-medium ${m.duration < 1 ? 'text-[9px]' : 'text-[10px]'}`}>{m.start} - {endTime}</p>
                               );
                             })()}
                           </div>
                           {m.duration >= 1 && (
-                            <div className="w-px h-4 bg-slate-600/50 mx-0.5"></div>
+                            <div className={`w-px h-4 ${isTimePassed ? 'bg-slate-600/30' : 'bg-slate-600/50'} mx-0.5`}></div>
                           )}
                           <div className="flex items-center gap-1.5 flex-shrink-0">
-                            <div className={`w-2 h-2 rounded-full ${project.color} ring-1 ring-slate-600/50`}></div>
-                            <span className={`text-slate-200 bg-slate-700/60 dark:bg-slate-600/60 px-1.5 py-0.5 rounded-md font-medium ${m.duration < 1 ? 'text-[9px]' : 'text-[9px]'}`}>
+                            <div className={`w-2 h-2 rounded-full ${isTimePassed ? 'bg-slate-400' : project.color} ring-1 ring-slate-600/50`}></div>
+                            <span className={`${isTimePassed ? 'text-slate-400 bg-slate-700/30 dark:bg-slate-600/30' : 'text-slate-200 bg-slate-700/60 dark:bg-slate-600/60'} px-1.5 py-0.5 rounded-md font-medium ${m.duration < 1 ? 'text-[9px]' : 'text-[9px]'}`}>
                               {project.name}
                             </span>
                           </div>
-                          {conflict.conflict && (
+                          {conflict.conflict && !isTimePassed && (
                             <div className="flex items-center gap-1 flex-shrink-0 px-1.5 py-0.5 bg-red-500/20 rounded-md">
                               <AlertTriangle size={m.duration < 1 ? 9 : 10} className="text-red-300" />
                             </div>
                           )}
                         </div>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className={`flex items-center gap-1 transition-opacity ${isTimePassed ? 'opacity-30' : 'opacity-0 group-hover:opacity-100'}`}>
                           <button 
                             onClick={(e) => {
                               e.stopPropagation();
-                              startEditMeeting(m);
+                              if (!isTimePassed) startEditMeeting(m);
                             }} 
                             className="p-1 rounded-md hover:bg-slate-700/50 text-slate-300 hover:text-white transition-colors flex-shrink-0"
                             title="Edit meeting"
+                            disabled={isTimePassed}
                           >
                             <Edit2 size={m.duration < 1 ? 12 : 14}/>
                           </button>
                           <button 
                             onClick={(e) => {
                               e.stopPropagation();
-                              setMeetings(meetings.filter(x => x.id !== m.id));
+                              if (!isTimePassed) setMeetings(meetings.filter(x => x.id !== m.id));
                             }} 
                             className="p-1 rounded-md hover:bg-red-500/20 text-slate-300 hover:text-red-300 transition-colors flex-shrink-0"
                             title="Delete meeting"
+                            disabled={isTimePassed}
                           >
                             <X size={m.duration < 1 ? 12 : 14}/>
                           </button>
@@ -2503,26 +2692,42 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
                   const conflict = checkConflict(item.start, item.duration, item.taskId);
                   const isDragging = draggedScheduleItem === item.taskId;
                   
+                  // Check if task time has passed or starts within 30 minutes (only for today's date)
+                  const isToday = selectedDateStr === todayStr;
+                  const startHours = timeToHours(item.start);
+                  const endHours = startHours + item.duration;
+                  const taskEndTime = endHours;
+                  const timeUntilStart = startHours - currentHour;
+                  const isTimePassed = isToday && taskEndTime < currentHour;
+                  const isOngoing = isToday && currentHour >= startHours && currentHour < endHours;
+                  const isStartingSoon = isToday && timeUntilStart > 0 && timeUntilStart <= 0.5; // 30 minutes = 0.5 hours
+                  // Allow dragging if ongoing, otherwise disable if time passed or starting soon (but not started yet)
+                  const cannotDrag = isTimePassed || (isStartingSoon && currentHour < startHours);
+                  
                   // Ensure truly unique key - combine multiple identifiers
                   const uniqueKey = item.id || `schedule-${item.taskId}-${item.start}-${item.date || formatDateForStorage(selectedDate)}-${index}`;
                   
                   return (
                     <div 
                       key={uniqueKey}
-                      draggable
-                      onDragStart={e => handleScheduleItemDragStart(e, item.taskId)}
+                      draggable={!cannotDrag}
+                      onDragStart={e => !cannotDrag && handleScheduleItemDragStart(e, item.taskId)}
                       onDragEnd={handleDragEnd}
-                      className={`absolute left-4 right-6 rounded-lg bg-gradient-to-br from-white to-slate-50 dark:from-slate-700 dark:to-slate-800 shadow-md border hover:shadow-lg hover:z-30 transition-all group cursor-move ${
+                      className={`absolute left-4 right-6 rounded-lg bg-gradient-to-br from-white to-slate-50 dark:from-slate-700 dark:to-slate-800 shadow-md border transition-all group ${
+                        cannotDrag 
+                          ? 'opacity-50 grayscale cursor-not-allowed' 
+                          : 'hover:shadow-lg hover:z-30 cursor-move hover:scale-[1.01]'
+                      } ${
                         conflict.conflict ? 'border-red-300 dark:border-red-500 ring-2 ring-red-200/50 dark:ring-red-900/50' : 'border-slate-200 dark:border-slate-600 hover:border-slate-300 dark:hover:border-slate-500'
-                      } ${isDragging ? 'opacity-50 scale-95' : 'hover:scale-[1.01]'} ${
+                      } ${isDragging ? 'opacity-50 scale-95' : ''} ${
                         item.duration < 1 ? 'p-1.5' : 'p-3'
                       }`}
-                      title="Task - Drag to reschedule"
+                      title={isTimePassed ? "Task time has passed" : isOngoing ? "Task in progress - Drag to reschedule" : isStartingSoon ? "Task starts within 30 minutes - cannot reschedule" : "Task - Drag to reschedule"}
                       style={{
                         top: `${(timeToHours(item.start) - workdayStart) * 80}px`,
                         height: `${Math.max(item.duration * 80, 40)}px`,
                         minHeight: '40px',
-                        borderLeft: `4px solid ${colorToHex(project.color)}`,
+                        borderLeft: `4px solid ${cannotDrag ? '#9ca3af' : colorToHex(project.color)}`,
                         boxShadow: conflict.conflict 
                           ? '0 4px 6px -1px rgba(239, 68, 68, 0.2), 0 2px 4px -1px rgba(239, 68, 68, 0.1)' 
                           : '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1)'
@@ -2534,36 +2739,36 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
                       <div className="relative flex justify-between items-center h-full gap-2">
                         <div className="overflow-hidden flex-1 min-w-0 flex items-center gap-2 flex-wrap">
                           <div className="flex items-center gap-1.5 flex-shrink-0">
-                            <div className="p-1 rounded-md bg-slate-100 dark:bg-slate-600/50">
-                              <CheckSquare size={item.duration < 1 ? 11 : 13} className="text-slate-600 dark:text-slate-300" />
+                            <div className={`p-1 rounded-md ${isTimePassed ? 'bg-slate-200 dark:bg-slate-700' : 'bg-slate-100 dark:bg-slate-600/50'}`}>
+                              <CheckSquare size={item.duration < 1 ? 11 : 13} className={isTimePassed ? 'text-slate-400 dark:text-slate-500' : 'text-slate-600 dark:text-slate-300'} />
                             </div>
-                            <span className={`font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-600/50 px-1.5 py-0.5 rounded-md uppercase tracking-wide flex-shrink-0 ${item.duration < 1 ? 'text-[8px]' : 'text-[9px]'}`}>Task</span>
+                            <span className={`font-semibold ${isTimePassed ? 'text-slate-400 dark:text-slate-500 bg-slate-200 dark:bg-slate-700' : 'text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-600/50'} px-1.5 py-0.5 rounded-md uppercase tracking-wide flex-shrink-0 ${item.duration < 1 ? 'text-[8px]' : 'text-[9px]'}`}>Task</span>
                           </div>
-                          <p className={`font-semibold text-slate-800 dark:text-slate-100 truncate flex-1 min-w-0 ${item.duration < 1 ? 'text-xs' : 'text-xs md:text-sm'}`}>{task.title}</p>
+                          <p className={`font-semibold ${isTimePassed ? 'text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-slate-100'} truncate flex-1 min-w-0 ${item.duration < 1 ? 'text-xs' : 'text-xs md:text-sm'}`}>{task.title}</p>
                           <div className="flex items-center gap-1 flex-shrink-0">
-                            <Clock size={item.duration < 1 ? 9 : 10} className="text-slate-500 dark:text-slate-400" />
+                            <Clock size={item.duration < 1 ? 9 : 10} className={isTimePassed ? 'text-slate-400 dark:text-slate-500' : 'text-slate-500 dark:text-slate-400'} />
                             {(() => {
                               const startHours = timeToHours(item.start);
                               const endHours = startHours + item.duration;
                               const endTime = hoursToTime(endHours);
                               return (
-                                <p className={`text-slate-600 dark:text-slate-300 font-medium ${item.duration < 1 ? 'text-[9px]' : 'text-[10px]'}`}>{item.start} - {endTime}</p>
+                                <p className={`${isTimePassed ? 'text-slate-400 dark:text-slate-500' : 'text-slate-600 dark:text-slate-300'} font-medium ${item.duration < 1 ? 'text-[9px]' : 'text-[10px]'}`}>{item.start} - {endTime}</p>
                               );
                             })()}
                           </div>
                           {item.duration >= 1 && (
-                            <div className="w-px h-4 bg-slate-300 dark:bg-slate-600 mx-0.5"></div>
+                            <div className={`w-px h-4 ${isTimePassed ? 'bg-slate-300 dark:bg-slate-600' : 'bg-slate-300 dark:bg-slate-600'} mx-0.5`}></div>
                           )}
                           <div className="flex items-center gap-1.5 flex-shrink-0">
-                            <div className={`w-2 h-2 rounded-full ${project.color} ring-1 ring-slate-300/50 dark:ring-slate-600/50`}></div>
-                            <span className={`text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-600/50 px-1.5 py-0.5 rounded-md font-medium ${item.duration < 1 ? 'text-[9px]' : 'text-[9px]'}`}>
+                            <div className={`w-2 h-2 rounded-full ${isTimePassed ? 'bg-slate-400 dark:bg-slate-500' : project.color} ring-1 ring-slate-300/50 dark:ring-slate-600/50`}></div>
+                            <span className={`${isTimePassed ? 'text-slate-400 dark:text-slate-500 bg-slate-200 dark:bg-slate-700' : 'text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-600/50'} px-1.5 py-0.5 rounded-md font-medium ${item.duration < 1 ? 'text-[9px]' : 'text-[9px]'}`}>
                               {project.name}
                             </span>
                           </div>
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-semibold border flex-shrink-0 ${getPriorityColor(task.priority)}`}>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-semibold border flex-shrink-0 ${isTimePassed ? 'text-slate-400 dark:text-slate-500 bg-slate-200 dark:bg-slate-700 border-slate-300 dark:border-slate-600' : getPriorityColor(task.priority)}`}>
                             {task.priority}
                           </span>
-                          {conflict.conflict && (
+                          {conflict.conflict && !isTimePassed && (
                             <div className="flex items-center gap-1 flex-shrink-0 px-1.5 py-0.5 bg-red-100 dark:bg-red-900/30 rounded-md">
                               <AlertTriangle size={item.duration < 1 ? 9 : 10} className="text-red-500 dark:text-red-400" />
                             </div>
@@ -2571,8 +2776,9 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
                         </div>
                         <button 
                           onClick={() => setSchedule(schedule.filter(s => s.taskId !== item.taskId))} 
-                          className="p-1 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
+                          className={`p-1 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-all flex-shrink-0 ${isTimePassed ? 'opacity-50' : 'opacity-0 group-hover:opacity-100'}`}
                           title="Remove from schedule"
+                          disabled={isTimePassed}
                         >
                           <X size={item.duration < 1 ? 12 : 14}/>
                         </button>
