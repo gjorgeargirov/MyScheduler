@@ -15,7 +15,28 @@
 export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
-  const path = url.pathname.replace('/api/auth', '');
+  // Handle both /api/auth/... and /api/auth/.../ paths
+  let path = url.pathname.replace('/api/auth', '');
+  // Remove trailing slash
+  if (path.endsWith('/') && path.length > 1) {
+    path = path.slice(0, -1);
+  }
+  // Ensure path starts with /
+  if (!path.startsWith('/')) {
+    path = '/' + path;
+  }
+
+  // Log database binding status
+  console.log('[AUTH] Request:', request.method, path);
+  console.log('[AUTH] DB binding exists:', !!env.DB);
+  console.log('[AUTH] JWT_SECRET exists:', !!env.JWT_SECRET);
+  
+  if (!env.DB) {
+    console.error('[AUTH] ERROR: env.DB is not defined! D1 binding may not be configured.');
+  }
+  if (!env.JWT_SECRET) {
+    console.error('[AUTH] ERROR: env.JWT_SECRET is not defined! Check Functions environment variables.');
+  }
 
   // CORS headers
   const corsHeaders = {
@@ -32,6 +53,7 @@ export async function onRequest(context) {
     // Sign up
     if (path === '/signup' && request.method === 'POST') {
       const { email, password, name } = await request.json();
+      console.log('[AUTH] Signup attempt for:', email);
 
       if (!email || !password || !name) {
         return new Response(
@@ -41,11 +63,23 @@ export async function onRequest(context) {
       }
 
       // Check if user exists
-      const existing = await env.DB.prepare(
-        'SELECT id FROM users WHERE email = ?'
-      ).bind(email).first();
+      console.log('[AUTH] Checking if user exists in database...');
+      let existing;
+      try {
+        existing = await env.DB.prepare(
+          'SELECT id FROM users WHERE email = ?'
+        ).bind(email).first();
+        console.log('[AUTH] User exists check result:', existing ? 'User found' : 'User not found');
+      } catch (dbError) {
+        console.error('[AUTH] Database error checking user:', dbError.message);
+        return new Response(
+          JSON.stringify({ error: 'Database error: ' + dbError.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
 
       if (existing) {
+        console.log('[AUTH] User already exists, returning error');
         return new Response(
           JSON.stringify({ error: 'Email already registered' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -53,17 +87,32 @@ export async function onRequest(context) {
       }
 
       // Hash password (simple bcrypt-like, in production use proper bcrypt)
+      console.log('[AUTH] Hashing password...');
       const hashedPassword = await hashPassword(password);
 
       // Create user
-      const result = await env.DB.prepare(
-        'INSERT INTO users (email, password_hash, name, created_at) VALUES (?, ?, ?, ?)'
-      ).bind(email, hashedPassword, name, new Date().toISOString()).run();
+      console.log('[AUTH] Inserting user into database...');
+      let result;
+      try {
+        result = await env.DB.prepare(
+          'INSERT INTO users (email, password_hash, name, created_at) VALUES (?, ?, ?, ?)'
+        ).bind(email, hashedPassword, name, new Date().toISOString()).run();
+        console.log('[AUTH] User inserted successfully! User ID:', result.meta.last_row_id);
+      } catch (dbError) {
+        console.error('[AUTH] Database error inserting user:', dbError.message);
+        return new Response(
+          JSON.stringify({ error: 'Database error: ' + dbError.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
 
       const userId = result.meta.last_row_id;
+      console.log('[AUTH] Generated user ID:', userId);
 
       // Generate JWT token
+      console.log('[AUTH] Generating JWT token...');
       const token = await generateToken(userId, email, env.JWT_SECRET);
+      console.log('[AUTH] Signup successful for:', email);
 
       return new Response(
         JSON.stringify({
@@ -77,6 +126,7 @@ export async function onRequest(context) {
     // Sign in
     if (path === '/signin' && request.method === 'POST') {
       const { email, password } = await request.json();
+      console.log('[AUTH] Signin attempt for:', email);
 
       if (!email || !password) {
         return new Response(
@@ -86,9 +136,20 @@ export async function onRequest(context) {
       }
 
       // Find user
-      const user = await env.DB.prepare(
-        'SELECT id, email, password_hash, name FROM users WHERE email = ?'
-      ).bind(email).first();
+      console.log('[AUTH] Looking up user in database...');
+      let user;
+      try {
+        user = await env.DB.prepare(
+          'SELECT id, email, password_hash, name FROM users WHERE email = ?'
+        ).bind(email).first();
+        console.log('[AUTH] User lookup result:', user ? 'User found (ID: ' + user.id + ')' : 'User not found');
+      } catch (dbError) {
+        console.error('[AUTH] Database error looking up user:', dbError.message);
+        return new Response(
+          JSON.stringify({ error: 'Database error: ' + dbError.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
 
       if (!user) {
         return new Response(
@@ -98,8 +159,10 @@ export async function onRequest(context) {
       }
 
       // Verify password
+      console.log('[AUTH] Verifying password...');
       const isValid = await verifyPassword(password, user.password_hash);
       if (!isValid) {
+        console.log('[AUTH] Password verification failed');
         return new Response(
           JSON.stringify({ error: 'Invalid email or password' }),
           { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -107,7 +170,9 @@ export async function onRequest(context) {
       }
 
       // Generate JWT token
+      console.log('[AUTH] Password verified, generating token...');
       const token = await generateToken(user.id, user.email, env.JWT_SECRET);
+      console.log('[AUTH] Signin successful for:', email);
 
       return new Response(
         JSON.stringify({
@@ -144,21 +209,29 @@ export async function onRequest(context) {
     }
 
     // Sign out (just returns success, client clears token)
-    if (path === '/signout' && request.method === 'POST') {
-      return new Response(
-        JSON.stringify({ success: true }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    if (path === '/signout' || path === '/signout/') {
+      if (request.method === 'POST' || request.method === 'GET') {
+        return new Response(
+          JSON.stringify({ success: true }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      } else {
+        return new Response(
+          JSON.stringify({ error: 'Method not allowed' }),
+          { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
     }
 
     return new Response(
-      JSON.stringify({ error: 'Not found' }),
+      JSON.stringify({ error: 'Not found', path: path, method: request.method }),
       { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
-    console.error('Auth error:', error);
+    console.error('[AUTH] Unhandled error:', error);
+    console.error('[AUTH] Error stack:', error.stack);
     return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
+      JSON.stringify({ error: 'Internal server error', details: error.message }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

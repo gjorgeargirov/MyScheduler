@@ -7,6 +7,26 @@ const AuthContext = createContext(null);
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 const USE_LOCAL_AUTH = import.meta.env.VITE_USE_LOCAL_AUTH !== 'false'; // Default to true for local dev
 
+// Debug logging for environment variables and configuration
+console.log('═══════════════════════════════════════════════════════════');
+console.log('🔧 AUTHENTICATION CONFIGURATION');
+console.log('═══════════════════════════════════════════════════════════');
+console.log('📡 API Configuration:');
+console.log('   VITE_API_BASE (raw):', import.meta.env.VITE_API_BASE);
+console.log('   API_BASE (computed):', API_BASE);
+console.log('   Full API URL:', `${window.location.origin}${API_BASE}`);
+console.log('');
+console.log('🔐 Authentication Mode:');
+console.log('   VITE_USE_LOCAL_AUTH (raw):', import.meta.env.VITE_USE_LOCAL_AUTH);
+console.log('   USE_LOCAL_AUTH (computed):', USE_LOCAL_AUTH);
+console.log('   Using:', USE_LOCAL_AUTH ? '🔴 LOCAL STORAGE' : '🟢 API/DATABASE');
+console.log('');
+console.log('🌐 Environment:');
+console.log('   Current URL:', window.location.href);
+console.log('   Origin:', window.location.origin);
+console.log('   All VITE env vars:', Object.keys(import.meta.env).filter(k => k.startsWith('VITE_')));
+console.log('═══════════════════════════════════════════════════════════');
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -67,9 +87,12 @@ export const AuthProvider = ({ children }) => {
   };
 
   const signUp = async (email, password, name) => {
+    console.log('[CLIENT] signUp called with USE_LOCAL_AUTH:', USE_LOCAL_AUTH);
+    console.log('[CLIENT] API_BASE:', API_BASE);
     try {
       // Try local auth first if enabled, or fall back if API fails
       if (USE_LOCAL_AUTH) {
+        console.log('[CLIENT] Using LOCAL auth (USE_LOCAL_AUTH is true)');
         try {
           const result = await localAuth.signUp(email, password, name);
           if (result.success) {
@@ -86,6 +109,7 @@ export const AuthProvider = ({ children }) => {
       }
 
       // Try API if local auth is disabled or failed
+      console.log('[CLIENT] Attempting API signup to:', `${API_BASE}/auth/signup`);
       try {
         const response = await fetch(`${API_BASE}/auth/signup`, {
           method: 'POST',
@@ -95,14 +119,18 @@ export const AuthProvider = ({ children }) => {
           body: JSON.stringify({ email, password, name }),
         });
 
+        console.log('[CLIENT] API response status:', response.status);
         if (response.ok) {
           const data = await response.json();
+          console.log('[CLIENT] API signup successful, user ID:', data.user?.id);
           await setStorageItem('auth_token', data.token);
           await setStorageItem('auth_user', data.user);
           setToken(data.token);
           setUser(data.user);
           return { success: true };
         }
+        
+        console.error('[CLIENT] API signup failed, status:', response.status);
 
         let errorMessage = 'Sign up failed. Please try again.';
         try {
