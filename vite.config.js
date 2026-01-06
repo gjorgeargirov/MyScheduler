@@ -17,4 +17,6 @@ export default defineConfig({
   },
   // Handle environment variables gracefully
   envPrefix: 'VITE_',
+  // Cloudflare Pages handles SPA routing automatically
+  // No need for _redirects file
 })
