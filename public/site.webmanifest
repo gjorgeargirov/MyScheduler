@@ -1,0 +1,14 @@
+{
+  "name": "FocusBoard",
+  "short_name": "FocusBoard",
+  "icons": [
+    {
+      "src": "/focusboard-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "theme_color": "#2563eb",
+  "background_color": "#0f172a",
+  "display": "standalone"
+}

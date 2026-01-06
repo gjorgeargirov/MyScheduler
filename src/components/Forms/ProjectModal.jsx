@@ -61,19 +61,32 @@ export const ProjectModal = ({
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
               Project Color
             </label>
-            <div className="flex gap-2 flex-wrap">
-              {['bg-blue-500', 'bg-indigo-500', 'bg-purple-500', 'bg-orange-500', 'bg-green-500', 'bg-pink-500', 'bg-teal-500', 'bg-red-500', 'bg-yellow-500', 'bg-cyan-500'].map(color => (
-                <button
-                  key={color}
-                  onClick={() => onColorChange(color)}
-                  className={`w-10 h-10 rounded-full transition-all hover:scale-110 ${color} ${
-                    currentColor === color
-                      ? 'ring-2 ring-offset-2 ring-slate-400 dark:ring-slate-500 scale-110'
-                      : ''
-                  }`}
-                  title={color.replace('bg-', '').replace('-500', '')}
-                />
-              ))}
+            <div className="relative">
+              <select
+                value={currentColor}
+                onChange={(e) => onColorChange(e.target.value)}
+                className="w-full h-10 pl-10 pr-3 border border-slate-200 dark:border-slate-600 rounded-md text-sm focus:ring-2 focus:ring-slate-400 focus:border-slate-400 outline-none bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 cursor-pointer appearance-none"
+                style={{
+                  backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`,
+                  backgroundPosition: 'right 0.5rem center',
+                  backgroundRepeat: 'no-repeat',
+                  backgroundSize: '1.5em 1.5em',
+                  paddingRight: '2.5rem'
+                }}
+              >
+                {['bg-blue-500', 'bg-indigo-500', 'bg-purple-500', 'bg-orange-500', 'bg-green-500', 'bg-pink-500', 'bg-teal-500', 'bg-red-500', 'bg-yellow-500', 'bg-cyan-500'].map(color => {
+                  const colorName = color.replace('bg-', '').replace('-500', '').replace(/\b\w/g, l => l.toUpperCase());
+                  return (
+                    <option key={color} value={color}>
+                      {colorName}
+                    </option>
+                  );
+                })}
+              </select>
+              {/* Color Preview Icon */}
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                <div className={`w-4 h-4 rounded-full ${currentColor} border border-slate-300 dark:border-slate-500`}></div>
+              </div>
             </div>
           </div>
 

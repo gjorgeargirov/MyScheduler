@@ -26,7 +26,6 @@ import {
   Users,
   CheckSquare,
   MessageCircle,
-  Bot,
   Send,
   RotateCcw,
   Sparkles,
@@ -39,9 +38,16 @@ import {
 // Import extracted components and utilities
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { Toast } from './components/Common/Toast';
+import NotificationCenter from './components/Modals/NotificationCenter';
 import { LoadingOverlay } from './components/Common/LoadingSpinner';
 import { ProjectModal } from './components/Forms/ProjectModal';
-import { CalendarIntegration } from './components/Calendar/CalendarIntegration';
+import AppHeader from './components/Layout/AppHeader';
+import CalendarPage from './components/Pages/CalendarPage';
+import TasksPage from './components/Pages/TasksPage';
+import TaskDetailsModal from './components/Modals/TaskDetailsModal';
+import TaskFormModal from './components/Modals/TaskFormModal';
+import MeetingFormModal from './components/Modals/MeetingFormModal';
+import SettingsModal from './components/Modals/SettingsModal';
 import { 
   formatDateForStorage, 
   formatDate, 
@@ -61,7 +67,6 @@ import { useNavigate, Link } from 'react-router-dom';
 let globalIdCounter = 0;
 
 const AIKanbanScheduler = () => {
-  console.log('AIKanbanScheduler component rendering...');
   
   // Authentication
   const { user, signOut, isAuthenticated, loading: authLoading } = useAuth();
@@ -82,10 +87,10 @@ const AIKanbanScheduler = () => {
   ], userId);
 
   const [tasks, setTasks] = useLocalStorage('focusboard_tasks', [
-    { id: 1, title: 'Design landing page', status: 'backlog', duration: 2, priority: 'high', projectId: 1, notes: '', dueDate: null },
-    { id: 2, title: 'Review code PR', status: 'in-progress', duration: 1, priority: 'medium', projectId: 2, notes: '', dueDate: null },
-    { id: 3, title: 'Write documentation', status: 'in-progress', duration: 1.5, priority: 'low', projectId: 1, notes: '', dueDate: null },
-    { id: 4, title: 'Team standup', status: 'done', duration: 0.5, priority: 'high', projectId: 3, notes: '', dueDate: null },
+    { id: 1, title: 'Design landing page', status: 'backlog', duration: 2, priority: 'high', projectId: 1, notes: '', dueDate: null, sticker: '' },
+    { id: 2, title: 'Review code PR', status: 'in-progress', duration: 1, priority: 'medium', projectId: 2, notes: '', dueDate: null, sticker: '' },
+    { id: 3, title: 'Write documentation', status: 'in-progress', duration: 1.5, priority: 'low', projectId: 1, notes: '', dueDate: null, sticker: '' },
+    { id: 4, title: 'Team standup', status: 'done', duration: 0.5, priority: 'high', projectId: 3, notes: '', dueDate: null, sticker: '' },
   ], userId);
 
   const [meetings, setMeetings] = useLocalStorage('focusboard_meetings', [
@@ -119,9 +124,21 @@ const AIKanbanScheduler = () => {
       }));
       setMeetings(migratedMeetings);
     }
+
+    // Migrate tasks to include sticker property
+    const tasksNeedsMigration = tasks.some(t => t.sticker === undefined);
+    if (tasksNeedsMigration) {
+      const migratedTasks = tasks.map(t => ({
+        ...t,
+        sticker: t.sticker || ''
+      }));
+      setTasks(migratedTasks);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [toasts, setToasts] = useState([]);
+  const [notifications, setNotifications] = useState([]); // Persistent notifications
+  const [showNotificationCenter, setShowNotificationCenter] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [notificationPermission, setNotificationPermission] = useState('default');
   
@@ -133,6 +150,8 @@ const AIKanbanScheduler = () => {
   const [newTaskPriority, setNewTaskPriority] = useState('medium');
   const [newTaskNotes, setNewTaskNotes] = useState('');
   const [newTaskDueDate, setNewTaskDueDate] = useState('');
+  const [newTaskSticker, setNewTaskSticker] = useState('');
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
   const [taskFormErrors, setTaskFormErrors] = useState({});
   
   // Update newTaskProject when projects change (if selected project was deleted)
@@ -166,7 +185,6 @@ const AIKanbanScheduler = () => {
   const [editMeetingEnd, setEditMeetingEnd] = useState('09:00');
   const [editMeetingProject, setEditMeetingProject] = useState(1);
   const [showProjectModal, setShowProjectModal] = useState(false);
-  const [showCalendarIntegration, setShowCalendarIntegration] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectColor, setNewProjectColor] = useState('bg-blue-500');
   
@@ -183,6 +201,38 @@ const AIKanbanScheduler = () => {
   const [editTaskProject, setEditTaskProject] = useState(1);
   const [editTaskDueDate, setEditTaskDueDate] = useState('');
   const [editTaskNotes, setEditTaskNotes] = useState('');
+  const [editTaskSticker, setEditTaskSticker] = useState('');
+  const [showEditStickerPicker, setShowEditStickerPicker] = useState(false);
+
+  // Popular emojis for sticker picker - Task-focused stickers
+  const popularEmojis = [
+    // Task status & actions
+    '✅', '❌', '⏸️', '▶️', '⏹️', '🔄', '⏭️', '⏮️', '⏩', '⏪',
+    // Documents & notes
+    '📝', '📋', '📌', '📎', '📄', '📃', '📑', '📊', '📈', '📉',
+    // Time & dates
+    '📅', '📆', '🗓️', '⏰', '⏳', '⏲️', '🕐', '🕑', '🕒', '🕓',
+    // Technology & work
+    '💻', '🖥️', '⌨️', '🖱️', '💾', '📱', '📞', '📧', '📨', '📩',
+    // Goals & achievements
+    '🎯', '🏆', '🥇', '🥈', '🥉', '🎖️', '🏅', '⭐', '🌟', '💎',
+    // Communication
+    '📢', '📣', '🔔', '🔕', '💬', '💭', '🗨️', '🗯️', '📮', '📬',
+    // Tools & utilities
+    '🔍', '🔎', '🔐', '🔑', '🔒', '🔓', '💡', '🔦', '⚡', '🔋',
+    // Progress & workflow
+    '🚀', '📦', '📤', '📥', '📂', '📁', '🗂️', '📇', '🗃️', '🗄️',
+    // Creative & design
+    '🎨', '🖌️', '🖍️', '✏️', '✒️', '🖊️', '🖋️', '📝', '📏', '📐',
+    // Learning & knowledge
+    '📚', '📖', '📗', '📘', '📙', '📕', '📓', '📔', '📒', '🔖',
+    // Buildings & locations
+    '🏢', '🏭', '🏗️', '🏛️', '🏘️', '🏚️', '🏠', '🏡', '🏪', '🏫',
+    '🏬', '🏯', '🏰', '🗼', '🗽', '⛪', '🕌', '🕍', '⛩️', '🛕',
+    // Tools & hardware
+    '🔧', '🔨', '⚒️', '🛠️', '⛏️', '🔩', '⚙️', '🗜️', '⚖️', '🦯',
+    '🔗', '⛓️', '🧰', '🧲', '🪚', '🪛', '🪜', '🪣', '🪤', '🪡'
+  ];
 
   // Filtering & Search
   const [searchQuery, setSearchQuery] = useState('');
@@ -267,127 +317,30 @@ const AIKanbanScheduler = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate, schedule, tasks]);
 
-  // Dark mode - using IndexedDB storage
-  const [darkMode, setDarkMode] = useState(false);
-  const darkModeLoaded = useRef(false);
-
-  // Load dark mode from IndexedDB on mount
+  // Force dark mode - always enabled
   useEffect(() => {
-    let isMounted = true;
-    
-    const loadDarkMode = async () => {
-      try {
-        const stored = await getStorageItem(getUserKey('focusboard_darkMode'));
-        if (isMounted && stored !== null) {
-          setDarkMode(stored);
-        }
-        darkModeLoaded.current = true;
-      } catch (error) {
-        console.error('Error loading dark mode:', error);
-        darkModeLoaded.current = true;
-      }
-    };
-
-    loadDarkMode();
-
+    document.documentElement.classList.add('dark');
     return () => {
-      isMounted = false;
+      document.documentElement.classList.remove('dark');
     };
-  }, [userId, getUserKey]);
-
-  // Save dark mode to IndexedDB
-  useEffect(() => {
-    if (darkModeLoaded.current) {
-      setStorageItem(getUserKey('focusboard_darkMode'), darkMode).catch(error => {
-        console.error('Error saving dark mode:', error);
-      });
-    }
-  }, [darkMode, userId, getUserKey]);
+  }, []);
 
   // Task details modal
   const [selectedTask, setSelectedTask] = useState(null);
   const [taskNotes, setTaskNotes] = useState('');
   const [taskDueDate, setTaskDueDate] = useState('');
 
-  // LLM Chat Bot
-  const [showChatBot, setShowChatBot] = useState(false);
-  const defaultChatMessages = [
-    { role: 'assistant', content: 'Hi! I\'m your AI calendar assistant. Tell me about your scheduling preferences and I\'ll help organize your day better. For example, you can say "I prefer to do deep work in the morning" or "Schedule meetings after 2 PM".' }
-  ];
-  
-  const [chatMessages, setChatMessages] = useState(defaultChatMessages);
-  const chatMessagesLoaded = useRef(false);
-  const [chatInput, setChatInput] = useState('');
-  const [chatLoading, setChatLoading] = useState(false);
-  
-  const [userPreferences, setUserPreferences] = useState('');
-  const preferencesLoaded = useRef(false);
+  const [showBreakTimePicker, setShowBreakTimePicker] = useState(false);
+  const [selectedBreakType, setSelectedBreakType] = useState(null);
+  const [breakStartTime, setBreakStartTime] = useState('12:00');
+  const [breakDuration, setBreakDuration] = useState(1);
 
-  // Load chat messages from IndexedDB on mount
-  useEffect(() => {
-    let isMounted = true;
-    
-    const loadChatMessages = async () => {
-      try {
-        const stored = await getStorageItem(getUserKey('focusboard_chatMessages'));
-        if (isMounted) {
-          setChatMessages(stored || defaultChatMessages);
-        }
-        chatMessagesLoaded.current = true;
-      } catch (error) {
-        console.error('Error loading chat messages:', error);
-        chatMessagesLoaded.current = true;
-      }
-    };
 
-    loadChatMessages();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [userId, getUserKey]);
-
-  // Load preferences from IndexedDB on mount
-  useEffect(() => {
-    let isMounted = true;
-    
-    const loadPreferences = async () => {
-      try {
-        const stored = await getStorageItem(getUserKey('focusboard_preferences'));
-        if (isMounted && stored) {
-          setUserPreferences(stored);
-        }
-        preferencesLoaded.current = true;
-      } catch (error) {
-        console.error('Error loading preferences:', error);
-        preferencesLoaded.current = true;
-      }
-    };
-
-    loadPreferences();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [userId, getUserKey]);
-
-  // Save chat messages to IndexedDB
-  useEffect(() => {
-    if (chatMessagesLoaded.current) {
-      setStorageItem(getUserKey('focusboard_chatMessages'), chatMessages).catch(error => {
-        console.error('Error saving chat messages:', error);
-      });
-    }
-  }, [chatMessages, userId, getUserKey]);
-
-  // Save preferences to IndexedDB
-  useEffect(() => {
-    if (preferencesLoaded.current) {
-      setStorageItem(getUserKey('focusboard_preferences'), userPreferences).catch(error => {
-        console.error('Error saving preferences:', error);
-      });
-    }
-  }, [userPreferences, userId, getUserKey]);
+  // Handle working hours update
+  const handleSaveWorkingHours = (start, end) => {
+    setWorkdayStart(start);
+    setWorkdayEnd(end);
+  };
 
   // Drag & Drop State
   const [draggedTaskId, setDraggedTaskId] = useState(null);
@@ -416,8 +369,10 @@ const AIKanbanScheduler = () => {
 
   // Time & Config
   const [currentTime, setCurrentTime] = useState(new Date());
-  const workdayStart = 8;
-  const workdayEnd = 18;
+  // Workday hours from localStorage
+  const [workdayStart, setWorkdayStart] = useLocalStorage('workdayStart', 9, userId);
+  const [workdayEnd, setWorkdayEnd] = useLocalStorage('workdayEnd', 17, userId);
+  const [showSettings, setShowSettings] = useState(false);
   
   // Track which reminders have been shown (to avoid duplicates) - using ref to avoid infinite loops
   const shownRemindersRef = useRef(new Set());
@@ -432,8 +387,26 @@ const AIKanbanScheduler = () => {
   
   const showToast = useCallback((message, type = 'success') => {
     const id = Date.now();
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
+    const timestamp = Date.now();
+    
+    // Add to notifications (persistent) - all notifications go to notification center only
+    setNotifications(prev => [{ id, message, type, timestamp, read: false }, ...prev]);
+    
+    // No toast display - notifications only appear in notification center
+  }, []);
+  
+  const markNotificationAsRead = useCallback((notificationId) => {
+    setNotifications(prev => 
+      prev.map(n => n.id === notificationId ? { ...n, read: true } : n)
+    );
+  }, []);
+  
+  const dismissNotification = useCallback((notificationId) => {
+    setNotifications(prev => prev.filter(n => n.id !== notificationId));
+  }, []);
+  
+  const clearAllNotifications = useCallback(() => {
+    setNotifications([]);
   }, []);
 
   // Show browser/desktop notification
@@ -589,26 +562,15 @@ const AIKanbanScheduler = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTime, schedule, meetings, tasks]);
 
-  // Apply dark mode - runs on mount and when darkMode changes
+  // Ensure dark mode is always enabled
   useEffect(() => {
     const html = document.documentElement;
-    
-    if (darkMode) {
-      html.classList.add('dark');
-    } else {
-      html.classList.remove('dark');
-    }
+    html.classList.add('dark');
     
     // Also set on body as fallback
     const body = document.body;
-    if (darkMode) {
-      body.classList.add('dark');
-    } else {
-      body.classList.remove('dark');
-    }
-    
-    console.log(`Dark mode: ${darkMode}, HTML classes: ${html.className}, Body classes: ${body.className}`);
-  }, [darkMode]);
+    body.classList.add('dark');
+  }, []);
 
   // Request notification permission on mount (but don't be pushy)
   useEffect(() => {
@@ -677,7 +639,7 @@ const AIKanbanScheduler = () => {
       
       // Handle recurring meetings
       if (m.repeatDays) {
-        const targetDateObj = new Date(targetDateStr + 'T00:00:00');
+        const targetDateObj = new Date(targetDate + 'T00:00:00');
         const dayOfWeek = targetDateObj.getDay();
         const dayMap = {
           monday: 1,
@@ -834,6 +796,7 @@ const AIKanbanScheduler = () => {
         projectId: Number(firstProject.id),
         notes: newTaskNotes || '',
         dueDate: newTaskDueDate || null,
+        sticker: newTaskSticker || '',
     };
     setTasks([...tasks, newTask]);
     } else {
@@ -847,6 +810,7 @@ const AIKanbanScheduler = () => {
         projectId: Number(selectedProject.id), // Ensure it's a number
         notes: newTaskNotes || '',
         dueDate: newTaskDueDate || null,
+        sticker: newTaskSticker || '',
       };
       setTasks([...tasks, newTask]);
     }
@@ -857,9 +821,9 @@ const AIKanbanScheduler = () => {
     setNewTaskPriority('medium');
     setNewTaskNotes('');
     setNewTaskDueDate('');
+    setNewTaskSticker('');
     setTaskFormErrors({});
     setShowTaskForm(false);
-    showToast('Task added to Backlog');
   };
 
   const startEditTask = (task) => {
@@ -870,6 +834,7 @@ const AIKanbanScheduler = () => {
     setEditTaskProject(task.projectId);
     setEditTaskDueDate(task.dueDate || '');
     setEditTaskNotes(task.notes || '');
+    setEditTaskSticker(task.sticker || '');
   };
 
   const openTaskDetails = (task) => {
@@ -892,350 +857,6 @@ const AIKanbanScheduler = () => {
     showToast('Task details updated');
   };
 
-  const sendChatMessage = async () => {
-    if (!chatInput.trim() || chatLoading) return;
-
-    const userMessage = chatInput.trim();
-    setChatInput('');
-    setChatLoading(true);
-    setIsLoading(true);
-
-    // Add user message
-    const newMessages = [...chatMessages, { role: 'user', content: userMessage }];
-    setChatMessages(newMessages);
-
-    try {
-      // Get current scheduled tasks for the selected date (NOT meetings - meetings cannot be moved)
-      const selectedDateStr = formatDateForStorage(selectedDate);
-      const currentScheduledTasks = schedule
-        .filter(s => (s.date || formatDateForStorage(new Date())) === selectedDateStr)
-        .map(s => {
-          const task = tasks.find(t => t.id === s.taskId);
-          return {
-            scheduleId: s.id,
-            taskId: s.taskId,
-            title: task?.title || s.taskTitle || 'Unknown Task',
-            start: s.start,
-            duration: s.duration,
-            project: task ? getProject(task.projectId).name : 'Unknown'
-          };
-        });
-
-      // Call OpenAI API
-      const apiKey = import.meta.env.VITE_OPENAI_API_KEY || '';
-      if (!apiKey) {
-        throw new Error('OpenAI API key not configured. Please set VITE_OPENAI_API_KEY in your .env file.');
-      }
-      
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: 'gpt-3.5-turbo',
-          messages: [
-            {
-              role: 'system',
-              content: `You are a helpful calendar scheduling assistant. You can help with preferences AND actually move SCHEDULED TASKS (NOT meetings - meetings cannot be moved).
-
-IMPORTANT: 
-- TASKS are work items that can be moved/rescheduled
-- MEETINGS are fixed events that CANNOT be moved - ignore any requests to move meetings
-
-Current workday: ${workdayStart}:00 to ${workdayEnd}:00
-Current preferences: ${userPreferences || 'None set yet'}
-
-CURRENT SCHEDULED TASKS FOR TODAY (these can be moved):
-${currentScheduledTasks.length > 0 ? currentScheduledTasks.map(t => `  - "${t.title}" at ${t.start} (${t.duration}h), Project: ${t.project}, Task ID: ${t.taskId}, Schedule ID: ${t.scheduleId}`).join('\n') : 'No tasks scheduled.'}
-
-CRITICAL: If the user asks to move or reschedule TASK(S) (not meetings), you MUST include a JSON array in your response. Use this EXACT format:
-
-For a SINGLE task:
-\`\`\`json
-[{"action": "move_task", "taskId": TASK_ID, "newStart": "HH:MM"}]
-\`\`\`
-
-For MULTIPLE tasks (e.g., "move all tasks after 12:00"):
-\`\`\`json
-[
-  {"action": "move_task", "taskId": TASK_ID_1, "newStart": "HH:MM"},
-  {"action": "move_task", "taskId": TASK_ID_2, "newStart": "HH:MM"},
-  {"action": "move_task", "taskId": TASK_ID_3, "newStart": "HH:MM"}
-]
-\`\`\`
-
-Rules:
-- ALWAYS return an ARRAY, even for a single task
-- taskId must be the exact Task ID from the CURRENT SCHEDULED TASKS list above (NOT schedule ID)
-- newStart must be in 24-hour format (HH:MM) like "14:30" or "17:00"
-- If user says "move all tasks after X:XX", find ALL tasks currently scheduled after that time and move them
-- If user says "end of day", calculate: workday ends at ${workdayEnd}:00, so use ${workdayEnd - 1}:00 or earlier depending on task duration
-- If user says "move all tasks after 12:00", find all tasks with start time >= 12:00 and move them to a new time
-- Space out multiple tasks - don't schedule them all at the same time (e.g., if moving 3 tasks, space them: 12:00, 13:00, 14:00)
-- If no specific task mentioned and user says "all" or "every", move ALL scheduled tasks
-- If user asks to move a "meeting", clarify that meetings cannot be moved, only tasks
-- Always include the JSON array in a code block at the END of your response
-
-Example for moving all tasks after 12:00:
-"I'll move all your tasks scheduled after 12:00 to start after 12:00.
-
-\`\`\`json
-[
-  {"action": "move_task", "taskId": 123, "newStart": "12:00"},
-  {"action": "move_task", "taskId": 456, "newStart": "13:00"},
-  {"action": "move_task", "taskId": 789, "newStart": "14:00"}
-]
-\`\`\`"
-
-Be conversational but ALWAYS include the JSON array when moving tasks. NEVER try to move meetings.`
-            },
-            ...newMessages.map(msg => ({
-              role: msg.role,
-              content: msg.content
-            }))
-          ],
-          temperature: 0.7,
-          max_tokens: 500
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      let aiResponse = data.choices[0]?.message?.content?.trim() || 'Sorry, I couldn\'t process that.';
-      
-      console.log('AI Response:', aiResponse);
-      console.log('Current scheduled tasks:', currentScheduledTasks);
-
-      // Check if AI wants to move TASK(S) (look for JSON array in response)
-      let taskMoved = false;
-      let movedTasks = [];
-      
-      // Try multiple patterns to find JSON array
-      let actionArray = null;
-      
-      // Pattern 1: JSON array in markdown code block
-      const codeBlockMatch = aiResponse.match(/```(?:json)?\s*(\[[\s\S]*?\])\s*```/);
-      if (codeBlockMatch && codeBlockMatch[1]) {
-        try {
-          const jsonString = codeBlockMatch[1].trim();
-          if (jsonString && jsonString.startsWith('[') && jsonString.endsWith(']')) {
-            actionArray = JSON.parse(jsonString);
-          }
-        } catch (e) {
-          // Try single object format (backward compatibility)
-          try {
-            const singleObjMatch = aiResponse.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
-            if (singleObjMatch && singleObjMatch[1]) {
-              const objString = singleObjMatch[1].trim();
-              if (objString && objString.startsWith('{') && objString.endsWith('}')) {
-                const singleAction = JSON.parse(objString);
-                if (singleAction.action === 'move_task') {
-                  actionArray = [singleAction];
-                }
-              }
-            }
-          } catch (e2) {
-            if (codeBlockMatch[1] && codeBlockMatch[1].trim().length > 0) {
-              console.warn('Could not parse JSON from AI response (this is normal if AI is just chatting):', e.message);
-            }
-          }
-        }
-      }
-      
-      // Pattern 2: JSON array anywhere in text
-      if (!actionArray) {
-        const arrayMatch = aiResponse.match(/\[[\s\S]*?"action"[\s\S]*?"move_task"[\s\S]*?\]/);
-        if (arrayMatch) {
-          try {
-            actionArray = JSON.parse(arrayMatch[0]);
-          } catch (e) {
-            // Try single object format
-            const jsonMatch = aiResponse.match(/\{[^{}]*"action"[^{}]*"move_task"[^{}]*\}/);
-            if (jsonMatch) {
-              try {
-                const singleAction = JSON.parse(jsonMatch[0]);
-                if (singleAction.action === 'move_task') {
-                  actionArray = [singleAction];
-                }
-              } catch (e2) {
-                console.error('Error parsing JSON:', e2);
-              }
-            }
-          }
-        }
-      }
-      
-      // Pattern 3: Detect "move all tasks after X:XX" pattern
-      if (!actionArray && (userMessage.toLowerCase().includes('move') || userMessage.toLowerCase().includes('reschedule'))) {
-        const wantsAllTasks = userMessage.toLowerCase().includes('all') || userMessage.toLowerCase().includes('every');
-        const timeThresholdMatch = userMessage.match(/(\d{1,2}):?(\d{2})?/);
-        
-        if (wantsAllTasks && timeThresholdMatch) {
-          // User wants to move all tasks after a certain time
-          const thresholdTime = timeThresholdMatch[0].includes(':') ? timeThresholdMatch[0] : `${timeThresholdMatch[1]}:00`;
-          const thresholdHours = timeToHours(thresholdTime);
-          const tasksToMove = currentScheduledTasks.filter(t => {
-            const taskStart = timeToHours(t.start);
-            return taskStart >= thresholdHours;
-          });
-          
-          if (tasksToMove.length > 0) {
-            // Extract target time from response or use threshold
-            const timeMatch = aiResponse.match(/(\d{1,2}):(\d{2})/);
-            const targetTime = timeMatch ? timeMatch[0] : thresholdTime;
-            const targetHours = timeToHours(targetTime);
-            
-            // Create actions for all tasks, spacing them out
-            actionArray = [];
-            let currentStart = targetHours;
-            for (const task of tasksToMove) {
-              if (currentStart + task.duration <= workdayEnd) {
-                actionArray.push({
-                  action: 'move_task',
-                  taskId: task.taskId,
-                  newStart: hoursToTime(currentStart)
-                });
-                currentStart += Math.max(task.duration, 0.5); // Space tasks out
-              }
-            }
-          }
-        } else {
-          // Single task fallback
-          const timeMatch = aiResponse.match(/(\d{1,2}):(\d{2})/);
-          const endOfDayMatch = aiResponse.toLowerCase().match(/end of (?:the )?day|end of day|last|latest/);
-          
-          if (timeMatch || endOfDayMatch) {
-            const taskToMove = currentScheduledTasks[0];
-            if (taskToMove) {
-              let newStartTime = null;
-              
-              if (timeMatch) {
-                newStartTime = timeMatch[0];
-              } else if (endOfDayMatch) {
-                const endHour = workdayEnd - taskToMove.duration;
-                newStartTime = hoursToTime(Math.max(workdayStart, endHour));
-              }
-              
-              if (newStartTime) {
-                actionArray = [{
-                  action: 'move_task',
-                  taskId: taskToMove.taskId,
-                  newStart: newStartTime
-                }];
-              }
-            }
-          }
-        }
-      }
-      
-      // Process all move actions
-      if (actionArray && Array.isArray(actionArray) && actionArray.length > 0) {
-        console.log('Found action array:', actionArray);
-        const selectedDateStr = formatDateForStorage(selectedDate);
-        const updatedSchedule = [...schedule];
-        let successCount = 0;
-        let conflictCount = 0;
-        
-        for (const action of actionArray) {
-          if (action.action === 'move_task' && action.taskId && action.newStart) {
-            try {
-              const taskId = typeof action.taskId === 'string' ? parseInt(action.taskId) : action.taskId;
-              
-              // Find the scheduled task for the selected date
-              const scheduleItem = updatedSchedule.find(s => {
-                const itemDate = s.date || formatDateForStorage(new Date());
-                return itemDate === selectedDateStr && (s.taskId === taskId || String(s.taskId) === String(taskId));
-              });
-              
-              if (scheduleItem) {
-                const task = tasks.find(t => t.id === taskId);
-                const conflict = checkConflict(action.newStart, scheduleItem.duration, taskId, selectedDateStr);
-                if (!conflict.conflict) {
-                  const itemIndex = updatedSchedule.indexOf(scheduleItem);
-                  updatedSchedule[itemIndex] = { ...scheduleItem, start: action.newStart };
-                  successCount++;
-                  movedTasks.push({ title: task?.title || 'Task', newStart: action.newStart });
-                } else {
-                  conflictCount++;
-                }
-              }
-            } catch (e) {
-              console.error('Error moving task:', e, 'Action:', action);
-            }
-          }
-        }
-        
-        if (successCount > 0) {
-          setSchedule(updatedSchedule);
-          taskMoved = true;
-          
-          // Update response message
-          aiResponse = aiResponse.replace(/```(?:json)?\s*\[[\s\S]*?\]\s*```/g, '').replace(/\[[\s\S]*?"action"[\s\S]*?"move_task"[\s\S]*?\]/g, '').trim();
-          aiResponse = aiResponse.replace(/```(?:json)?\s*\{[\s\S]*?\}\s*```/g, '').replace(/\{[\s\S]*"action"[\s\S]*"move_task"[\s\S]*\}/g, '').trim();
-          
-          if (successCount === 1) {
-            showToast(`Task "${movedTasks[0].title}" moved to ${movedTasks[0].newStart}`);
-            if (!aiResponse.includes('✅')) {
-              aiResponse += `\n\n✅ Done! I've moved "${movedTasks[0].title}" to ${movedTasks[0].newStart}.`;
-            }
-          } else {
-            const taskList = movedTasks.map(t => `"${t.title}" to ${t.newStart}`).join(', ');
-            showToast(`Moved ${successCount} task(s)!`);
-            if (!aiResponse.includes('✅')) {
-              aiResponse += `\n\n✅ Done! I've moved ${successCount} task(s): ${taskList}.`;
-            }
-          }
-          
-          if (conflictCount > 0) {
-            aiResponse += `\n\n⚠️ ${conflictCount} task(s) could not be moved due to conflicts.`;
-          }
-        } else if (conflictCount > 0) {
-          aiResponse = aiResponse.replace(/```(?:json)?\s*\[[\s\S]*?\]\s*```/g, '').replace(/\[[\s\S]*?"action"[\s\S]*?"move_task"[\s\S]*?\]/g, '').trim();
-          aiResponse += `\n\n❌ Sorry, I couldn't move the task(s) because of conflicts.`;
-        }
-      }
-
-      // Add AI response
-      setChatMessages([...newMessages, { role: 'assistant', content: aiResponse }]);
-
-      // Extract and save preferences if mentioned
-      const preferenceKeywords = ['prefer', 'like', 'want', 'schedule', 'morning', 'afternoon', 'evening', 'deep work', 'focus', 'meeting'];
-      const hasPreference = preferenceKeywords.some(keyword => userMessage.toLowerCase().includes(keyword));
-      
-      if (hasPreference && !taskMoved) {
-        setUserPreferences(prev => prev ? `${prev}\n${userMessage}` : userMessage);
-        // Offer to schedule tasks with new preferences
-        setTimeout(() => {
-          const hasUnscheduledTasks = tasks.some(t => t.status === 'in-progress' && !schedule.find(s => s.taskId === t.id && (s.date || formatDateForStorage(new Date())) === selectedDateStr));
-          if (hasUnscheduledTasks) {
-            setChatMessages(prev => [...prev, { 
-              role: 'assistant', 
-              content: 'Perfect! I\'ve saved your preferences. When you click "Auto Schedule", I\'ll use these preferences to organize your tasks. Try it now!' 
-            }]);
-          }
-        }, 500);
-      }
-
-    } catch (error) {
-      console.error('Chat error:', error);
-      // Only add error message if chat bot is still open
-      if (showChatBot) {
-        setChatMessages([...newMessages, { 
-          role: 'assistant', 
-          content: 'Sorry, I encountered an error. Please try again.' 
-        }]);
-      }
-      showToast(error.message || 'Failed to send message', 'error');
-    } finally {
-      setChatLoading(false);
-      setIsLoading(false);
-    }
-  };
 
   const formatDate = (date) => {
     return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
@@ -1306,7 +927,8 @@ Be conversational but ALWAYS include the JSON array when moving tasks. NEVER try
             priority: editTaskPriority, 
             projectId: finalProjectId,
             dueDate: editTaskDueDate || null,
-            notes: editTaskNotes || ''
+            notes: editTaskNotes || '',
+            sticker: editTaskSticker || ''
           }
         : t
     ));
@@ -1432,7 +1054,8 @@ Be conversational but ALWAYS include the JSON array when moving tasks. NEVER try
     setEditMeetingStart(meeting.start);
     const endTime = hoursToTime(timeToHours(meeting.start) + meeting.duration);
     setEditMeetingEnd(endTime);
-    setEditMeetingProject(meeting.projectId || 1);
+    // Breaks don't have projects, so set to null or first project (but won't be used for breaks)
+    setEditMeetingProject(meeting.isBreak ? null : (meeting.projectId || 1));
     setShowMeetingForm(true);
   };
 
@@ -1463,7 +1086,8 @@ Be conversational but ALWAYS include the JSON array when moving tasks. NEVER try
             title: editMeetingTitle,
             start: editMeetingStart,
             duration: duration,
-            projectId: editMeetingProject
+            // Breaks are private, keep projectId as null
+            projectId: m.isBreak ? null : editMeetingProject
           }
         : m
     ));
@@ -1553,6 +1177,81 @@ Be conversational but ALWAYS include the JSON array when moving tasks. NEVER try
     setShowMeetingForm(false);
   };
 
+  // Open break time picker
+  const openBreakTimePicker = (breakType) => {
+    const defaultTimes = {
+      lunch: { start: '12:00', duration: 1 },
+      coffee: { start: '10:30', duration: 0.5 },
+      pause: { start: '15:00', duration: 0.5 },
+      exercise: { start: '07:00', duration: 1 }
+    };
+    const defaults = defaultTimes[breakType] || { start: '12:00', duration: 1 };
+    setBreakStartTime(defaults.start);
+    setBreakDuration(defaults.duration);
+    setSelectedBreakType(breakType);
+    setShowBreakTimePicker(true);
+  };
+
+  // Quick add break blocks (lunch, coffee, pause, etc.) - repeats daily
+  const addQuickBreak = (breakType, startTime, duration) => {
+    const breakConfigs = {
+      lunch: { title: '🍽️ Lunch Break', color: '#f59e0b' },
+      coffee: { title: '☕ Coffee Break', color: '#a855f7' },
+      pause: { title: '⏸️ Pause', color: '#64748b' },
+      exercise: { title: '💪 Exercise', color: '#10b981' }
+    };
+
+    const config = breakConfigs[breakType];
+    if (!config) return;
+
+    // Check if this break already exists (same type, time, and duration)
+    const existingBreak = meetings.find(m => 
+      m.isBreak && 
+      m.breakType === breakType && 
+      m.start === startTime && 
+      m.duration === duration &&
+      m.repeatDays // Only check recurring breaks
+    );
+
+    if (existingBreak) {
+      showToast(`${config.title} already exists`, 'info');
+      setShowBreakTimePicker(false);
+      setSelectedBreakType(null);
+      return;
+    }
+
+    // Check for conflict on the selected date
+    const conflict = checkMeetingConflict(startTime, duration);
+    if (conflict.conflict) {
+      showToast(`Conflict detected with ${conflict.type === 'meeting' ? 'meeting' : 'task'}: ${conflict.item.title}`, 'error');
+      return;
+    }
+
+    // Create recurring break that repeats every weekday (Monday-Friday)
+    setMeetings([...meetings, {
+      id: Date.now() + Math.random(),
+      title: config.title,
+      start: startTime,
+      duration: duration,
+      projectId: null, // Breaks are private, not associated with projects
+      date: formatDateForStorage(selectedDate),
+      isBreak: true,
+      breakType: breakType,
+      breakColor: config.color,
+      repeatDays: {
+        monday: true,
+        tuesday: true,
+        wednesday: true,
+        thursday: true,
+        friday: true
+      }
+    }]);
+    
+    showToast(`${config.title} added (repeats daily)`);
+    setShowBreakTimePicker(false);
+    setSelectedBreakType(null);
+  };
+
   // Import meetings from external calendars
   const importMeetingsFromCalendar = async (importedMeetings) => {
     let importedCount = 0;
@@ -1640,19 +1339,53 @@ Be conversational but ALWAYS include the JSON array when moving tasks. NEVER try
           duration: m.duration
         }));
       
-      // Prepare tasks to schedule
-      const tasksToSchedule = toSchedule.map(t => {
-        const project = getProject(t.projectId);
-        return {
-          id: t.id,
-          title: t.title,
-          duration: t.duration,
-          priority: t.priority,
-          project: project.name,
-          dueDate: t.dueDate,
-          notes: t.notes
-        };
-      });
+      // Split long tasks into smaller chunks
+      const MAX_CHUNK_DURATION = 2; // Maximum duration for each chunk (2 hours)
+      const MIN_TASK_DURATION_TO_SPLIT = 3; // Split tasks longer than 3 hours
+      
+      const tasksToSchedule = [];
+      const taskChunksMap = new Map(); // Map original task ID to array of chunk info
+      
+      for (const task of toSchedule) {
+        const project = getProject(task.projectId);
+        
+        if (task.duration > MIN_TASK_DURATION_TO_SPLIT) {
+          // Split long task into chunks
+          const numChunks = Math.ceil(task.duration / MAX_CHUNK_DURATION);
+          const chunkDuration = task.duration / numChunks;
+          const chunks = [];
+          
+          for (let i = 0; i < numChunks; i++) {
+            const chunkId = `${task.id}-chunk-${i + 1}`;
+            chunks.push({
+              id: chunkId,
+              originalTaskId: task.id,
+              chunkIndex: i + 1,
+              totalChunks: numChunks,
+              duration: i === numChunks - 1 ? (task.duration - (chunkDuration * (numChunks - 1))) : chunkDuration, // Last chunk gets remainder
+              title: `${task.title} (Part ${i + 1}/${numChunks})`,
+              priority: task.priority,
+              project: project.name,
+              dueDate: task.dueDate,
+              notes: task.notes
+            });
+            tasksToSchedule.push(chunks[i]);
+          }
+          
+          taskChunksMap.set(task.id, chunks);
+        } else {
+          // Regular task, no splitting needed
+          tasksToSchedule.push({
+            id: task.id,
+            title: task.title,
+            duration: task.duration,
+            priority: task.priority,
+            project: project.name,
+            dueDate: task.dueDate,
+            notes: task.notes
+          });
+        }
+      }
       
       // Calculate available time slots (only for selected date)
       const allOccupied = [];
@@ -1750,26 +1483,37 @@ Be conversational but ALWAYS include the JSON array when moving tasks. NEVER try
 
 WORKDAY: ${workdayStart}:00 to ${workdayEnd}:00 (${workdayEnd - workdayStart} hours available)
 
-${userPreferences ? `USER PREFERENCES:
-${userPreferences}
-
-IMPORTANT: Follow these preferences when scheduling tasks. For example:
-- If user prefers "deep work in the morning", schedule important/focused tasks in morning slots
-- If user prefers "meetings after 2 PM", avoid scheduling tasks that might conflict with that preference
-- If user mentions specific times, prioritize those times for appropriate tasks
-- Consider the user's stated preferences as high priority constraints
-
-` : ''}CURRENT SCHEDULE (OCCUPIED TIME):
+CURRENT SCHEDULE (OCCUPIED TIME):
 ${mergedOccupied.length > 0 ? mergedOccupied.map(s => `  - ${hoursToTime(s.start)} to ${hoursToTime(s.end)}: ${s.title} (${s.type})`).join('\n') : 'No occupied time slots.'}
 
-AVAILABLE FREE TIME SLOTS:
-${freeSlots.length > 0 ? freeSlots.map((slot, i) => `  ${i + 1}. ${hoursToTime(slot.start)} to ${hoursToTime(slot.end)} (${(slot.end - slot.start).toFixed(1)} hours available)`).join('\n') : 'NO FREE TIME AVAILABLE'}
+AVAILABLE FREE TIME SLOTS (USE THESE - THEY ARE GUARANTEED TO BE FREE):
+${freeSlots.length > 0 ? freeSlots.map((slot, i) => {
+  const slotDuration = slot.end - slot.start;
+  const canFitTasks = sortedTasks.filter(t => t.duration <= slotDuration).length;
+  return `  ${i + 1}. ${hoursToTime(slot.start)} to ${hoursToTime(slot.end)} (${slotDuration.toFixed(1)} hours available) - Can fit ${canFitTasks} task(s) from the list`;
+}).join('\n') : 'NO FREE TIME AVAILABLE'}
+
+**CRITICAL: You MUST use these available free time slots. Do NOT skip them!**
+**Example: If slot 1 is "12:00 to 14:00 (2.0 hours available)", you can schedule:**
+- One 2.0h task at 12:00
+- One 1.0h task at 12:00 and one 1.0h task at 13:00
+- One 1.5h task at 12:00 and one 0.5h task at 13:30
+- But NOT a 2.5h task (it won't fit)
 
 TASKS TO SCHEDULE (SORTED BY PRIORITY - HIGH PRIORITY FIRST):
 ${sortedTasks.map((t, i) => {
   const priorityEmoji = t.priority === 'high' ? '🔴' : t.priority === 'medium' ? '🟡' : '🟢';
-  return `${i + 1}. ${priorityEmoji} Task ID ${t.id}: "${t.title}" - ${t.duration}h, PRIORITY: ${t.priority.toUpperCase()}, Project: ${t.project}${t.dueDate ? `, Due: ${t.dueDate}` : ''}${t.notes ? `, Notes: ${t.notes}` : ''}`;
+  const isChunk = t.originalTaskId !== undefined;
+  const chunkInfo = isChunk ? ` [CHUNK ${t.chunkIndex}/${t.totalChunks} of task ${t.originalTaskId}]` : '';
+  return `${i + 1}. ${priorityEmoji} Task ID ${t.id}: "${t.title}" - ${t.duration.toFixed(1)}h, PRIORITY: ${t.priority.toUpperCase()}, Project: ${t.project}${chunkInfo}${t.dueDate ? `, Due: ${t.dueDate}` : ''}${t.notes ? `, Notes: ${t.notes}` : ''}`;
 }).join('\n')}
+
+IMPORTANT - TASK SPLITTING:
+- Some long tasks have been split into smaller chunks (shown as "Part X/Y")
+- Each chunk MUST be scheduled in a DIFFERENT time slot
+- Chunks from the same original task should be spaced out throughout the day (not back-to-back)
+- Schedule chunks in different available time slots to allow for breaks, meetings, and other tasks between them
+- Example: If "Design Project (Part 1/3)" is scheduled at 09:00, schedule "Design Project (Part 2/3)" at a later time like 11:00 or 14:00, NOT immediately after
 
 CRITICAL SCHEDULING RULES (FOLLOW IN THIS EXACT ORDER):
 1. **PRIORITY IS THE MOST IMPORTANT FACTOR**: 
@@ -1787,16 +1531,18 @@ CRITICAL SCHEDULING RULES (FOLLOW IN THIS EXACT ORDER):
    - HIGH priority tasks → Use the BEST/EARLIEST available slots
    - MEDIUM priority tasks → Use remaining good slots
    - LOW priority tasks → Use any remaining slots
-   ${userPreferences ? '- Apply user preferences when choosing specific time slots (e.g., morning for deep work)' : ''}
 
 4. **TECHNICAL REQUIREMENTS**:
    - Use ONLY the available free time slots listed above
    - Each task must fit completely within a free time slot
    - Do NOT schedule tasks in occupied time slots
    - **CRITICAL: NEVER schedule multiple tasks at the same start time** - each task must have a unique start time
-   - If scheduling multiple tasks, ensure their time slots do NOT overlap (e.g., Task 1: 09:00-10:00, Task 2: 10:00-11:00, NOT both at 09:00)
+   - **CRITICAL: Tasks must NOT overlap** - if Task A is 09:00-10:00 (1 hour), Task B must start at 10:00 or later, NOT at 09:30
+   - **CRITICAL: For split tasks (chunks), schedule each chunk in a DIFFERENT time slot with gaps between them**
+   - If a task is split into chunks, space them out (e.g., Part 1 at 09:00, Part 2 at 11:00, Part 3 at 14:00)
    - Use 24-hour format (HH:MM) for start times
-   - ${userPreferences ? 'STRICTLY FOLLOW user preferences when they don\'t conflict with priority rules' : ''}
+   - Calculate end times: Task at 09:00 with 1.5h duration ends at 10:30
+   - Ensure no task ends after workday end time (${workdayEnd}:00)
 
 Return ONLY a JSON array with this exact format:
 [
@@ -1804,16 +1550,53 @@ Return ONLY a JSON array with this exact format:
   {"taskId": 456, "start": "11:00"}
 ]
 
-CRITICAL RULES:
+CRITICAL RULES - READ CAREFULLY:
 - DO NOT include "duration" in your response - it will be taken from the original task
 - ONLY provide "taskId" and "start" time
 - The duration is already specified in the task list above - DO NOT change it
 - You are ONLY choosing WHEN to schedule each task, NOT how long it takes
-- **NEVER schedule multiple tasks at the same start time** - each task must have a unique start time
-- Ensure tasks do NOT overlap - if Task A is 09:00-10:00 (duration 1h), Task B must start at 10:00 or later, NOT at 09:00
-- Calculate end times: Task duration is shown in the task list (e.g., "2h" means task ends 2 hours after start)
 
-IMPORTANT: The tasks are already sorted by priority in the list above. Schedule them in that order - HIGH priority tasks FIRST. Use the exact taskId numbers from the "TASKS TO SCHEDULE" list above. Only include tasks that can fit in the available free slots. If a task cannot be scheduled, omit it from the response, but NEVER omit a HIGH priority task if there's any way to fit it.`;
+**OVERLAP PREVENTION (CRITICAL):**
+- **NEVER schedule multiple tasks at the same start time** - each task must have a unique start time
+- **Tasks MUST NOT overlap** - calculate end times carefully:
+  * Task with 1.0h duration at 09:00 ends at 10:00
+  * Task with 1.5h duration at 09:00 ends at 10:30
+  * Task with 2.0h duration at 09:00 ends at 11:00
+- If Task A is 09:00-10:00 (1h duration), Task B must start at 10:00 or later, NOT at 09:30 or 09:00
+- If Task A is 09:00-10:30 (1.5h duration), Task B must start at 10:30 or later
+- **ALWAYS check that task end time (start + duration) does not exceed workday end (${workdayEnd}:00)**
+
+**USING AVAILABLE SLOTS (MANDATORY):**
+- **YOU MUST USE THE AVAILABLE FREE TIME SLOTS LISTED ABOVE**
+- **DO NOT skip available slots - use them in order of priority**
+- Each task must fit COMPLETELY within a free time slot
+- **Fill available slots efficiently - don't leave gaps unused if tasks can fit**
+- Example: If free slot is 12:00-14:00 (2 hours), you can schedule:
+  * One 2h task at 12:00
+  * One 1h task at 12:00 and one 1h task at 13:00
+  * One 1.5h task at 12:00 and one 0.5h task at 13:30
+  * But NOT a 2.5h task (it won't fit)
+- **If you have a 2-hour slot (12:00-14:00) and a 1.5h task, schedule it at 12:00, NOT at 15:00**
+
+**CHUNK SCHEDULING:**
+- For split tasks (chunks), schedule each chunk in a DIFFERENT time slot
+- Space chunks out: if Part 1 is at 09:00, Part 2 should be at 11:00 or later (not 10:00)
+- Each chunk must fit in its own available slot
+
+**PRIORITY ORDER:**
+- The tasks are already sorted by priority in the list above
+- Schedule them in that order - HIGH priority tasks FIRST
+- Use the exact taskId numbers from the "TASKS TO SCHEDULE" list above
+- Only include tasks that can fit in the available free slots
+- If a task cannot be scheduled, omit it from the response
+- **NEVER omit a HIGH priority task if there's any way to fit it**
+
+**VALIDATION CHECKLIST before including a task:**
+1. Is the start time within workday hours (${workdayStart}:00 to ${workdayEnd}:00)?
+2. Does start + duration fit within an available free slot?
+3. Does start + duration not exceed workday end?
+4. Does this task not overlap with any other task in your response?
+5. For chunks: Is this chunk spaced out from other chunks of the same task?`;
 
       // Call OpenAI API
       const apiKey = import.meta.env.VITE_OPENAI_API_KEY || '';
@@ -1874,57 +1657,125 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
       // Convert AI suggestions to schedule items
       const newScheduleItems = [];
       const scheduledTaskIds = new Set();
-      const usedTimeSlots = new Map(); // Track used time slots to prevent duplicates
+      const scheduledChunkIds = new Set(); // Track scheduled chunks
+      const usedTimeSlots = new Map(); // Track used time slots to prevent duplicates - key: startHours, value: endHours
+      const originalTaskChunksScheduled = new Map(); // Track how many chunks of each original task are scheduled
 
-      for (const suggestion of scheduleData) {
-        const task = toSchedule.find(t => t.id === suggestion.taskId);
-        if (!task) continue;
+      // Sort suggestions by priority and start time to process high priority first
+      const sortedSuggestions = [...scheduleData].sort((a, b) => {
+        const taskA = tasksToSchedule.find(t => t.id === a.taskId);
+        const taskB = tasksToSchedule.find(t => t.id === b.taskId);
+        if (!taskA || !taskB) return 0;
+        const priorityOrder = { high: 3, medium: 2, low: 1 };
+        const priorityDiff = (priorityOrder[taskB.priority] || 2) - (priorityOrder[taskA.priority] || 2);
+        if (priorityDiff !== 0) return priorityDiff;
+        return timeToHours(a.start) - timeToHours(b.start);
+      });
+
+      for (const suggestion of sortedSuggestions) {
+        // Find task in tasksToSchedule (could be original or chunk)
+        const taskOrChunk = tasksToSchedule.find(t => t.id === suggestion.taskId);
+        if (!taskOrChunk) continue;
         
-        // ALWAYS use the original task duration - AI should NOT change durations
-        const taskDuration = task.duration;
+        // Check if this is a chunk
+        const isChunk = taskOrChunk.originalTaskId !== undefined;
+        const originalTaskId = isChunk ? taskOrChunk.originalTaskId : taskOrChunk.id;
+        const originalTask = toSchedule.find(t => t.id === originalTaskId);
         
-        // Validate the time slot using original task duration
+        if (!originalTask) continue;
+        
+        // Use chunk duration if it's a chunk, otherwise use original task duration
+        const taskDuration = taskOrChunk.duration;
+        
+        // Validate the time slot
         const startHours = timeToHours(suggestion.start);
         const endHours = startHours + taskDuration;
         
         if (startHours < workdayStart || endHours > workdayEnd) {
+          showToast(`Skipped "${taskOrChunk.title}": Outside workday hours`, 'info');
           continue; // Skip if outside workday
         }
         
-        // Check if this time slot is already used by another task in this batch
-        const timeSlotKey = `${suggestion.start}-${endHours.toFixed(2)}`;
-        if (usedTimeSlots.has(timeSlotKey)) {
-          const conflictingTask = usedTimeSlots.get(timeSlotKey);
-          showToast(`Skipped "${task.title}": Time slot conflict with "${conflictingTask}"`, 'info');
+        // Check if this time slot fits within any available free slot
+        let fitsInFreeSlot = false;
+        for (const freeSlot of freeSlots) {
+          if (startHours >= freeSlot.start && endHours <= freeSlot.end) {
+            fitsInFreeSlot = true;
+            break;
+          }
+        }
+        
+        if (!fitsInFreeSlot) {
+          showToast(`Skipped "${taskOrChunk.title}": Time slot ${suggestion.start} does not fit in any available free slot`, 'info');
           continue;
         }
         
-        // Check for conflicts with existing schedule/meetings using original task duration
-        const conflict = checkConflict(suggestion.start, taskDuration, task.id);
+        // Check for overlaps with items already scheduled in this batch
+        let hasOverlap = false;
+        for (const [existingStart, existingEnd] of usedTimeSlots.entries()) {
+          if (startHours < existingEnd && endHours > existingStart) {
+            hasOverlap = true;
+            break;
+          }
+        }
+        
+        if (hasOverlap) {
+          showToast(`Skipped "${taskOrChunk.title}": Time slot overlap with another task in this batch`, 'info');
+          continue;
+        }
+        
+        // Check for conflicts with existing schedule/meetings (excluding items being rescheduled)
+        const conflict = checkConflict(suggestion.start, taskDuration, originalTaskId, selectedDateStr);
         if (conflict.conflict) {
-          showToast(`Skipped "${task.title}": Conflict detected`, 'info');
+          showToast(`Skipped "${taskOrChunk.title}": Conflict with ${conflict.type === 'meeting' ? 'meeting' : 'task'} "${conflict.item?.title || 'Unknown'}"`, 'info');
           continue;
         }
         
-        // Check if this task is already scheduled in this batch
-        if (scheduledTaskIds.has(task.id)) {
+        // For chunks, check if this chunk is already scheduled
+        if (isChunk && scheduledChunkIds.has(taskOrChunk.id)) {
           continue;
         }
         
-        // Generate truly unique ID - include task ID, start time, and a unique counter
-        const uniqueId = generateUniqueId(`schedule-${task.id}-${suggestion.start}-`);
+        // For non-chunk tasks, check if already scheduled
+        if (!isChunk && scheduledTaskIds.has(originalTaskId)) {
+          continue;
+        }
+        
+        // Generate truly unique ID
+        const uniqueId = generateUniqueId(`schedule-${originalTaskId}-${suggestion.start}-${isChunk ? `chunk${taskOrChunk.chunkIndex}` : ''}-`);
         
         newScheduleItems.push({
           id: uniqueId,
-          taskId: task.id,
-          taskTitle: task.title,
+          taskId: originalTaskId, // Always use original task ID
+          taskTitle: isChunk ? taskOrChunk.title : originalTask.title, // Use chunk title if it's a chunk
           start: suggestion.start,
-          duration: taskDuration, // Always use original task duration
-          date: formatDateForStorage(selectedDate)
+          duration: taskDuration,
+          date: formatDateForStorage(selectedDate),
+          isChunk: isChunk, // Mark if this is a chunk
+          chunkIndex: isChunk ? taskOrChunk.chunkIndex : undefined,
+          totalChunks: isChunk ? taskOrChunk.totalChunks : undefined
         });
         
-        scheduledTaskIds.add(task.id);
-        usedTimeSlots.set(timeSlotKey, task.title); // Track this time slot
+        if (isChunk) {
+          scheduledChunkIds.add(taskOrChunk.id);
+          // Track chunks scheduled for original task
+          const chunksCount = originalTaskChunksScheduled.get(originalTaskId) || 0;
+          originalTaskChunksScheduled.set(originalTaskId, chunksCount + 1);
+        } else {
+          scheduledTaskIds.add(originalTaskId);
+        }
+        
+        // Track this time slot using hours for better overlap detection
+        usedTimeSlots.set(startHours, endHours);
+      }
+      
+      // Check if all chunks of a split task are scheduled
+      for (const [originalTaskId, chunks] of taskChunksMap.entries()) {
+        const scheduledChunksCount = originalTaskChunksScheduled.get(originalTaskId) || 0;
+        if (scheduledChunksCount > 0 && scheduledChunksCount < chunks.length) {
+          const originalTask = toSchedule.find(t => t.id === originalTaskId);
+          showToast(`"${originalTask?.title}" partially scheduled (${scheduledChunksCount}/${chunks.length} parts)`, 'info');
+        }
       }
 
             // Add to schedule (use updatedSchedule as base - this reorganizes tasks)
@@ -1937,8 +1788,17 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
             }
             setIsLoading(false);
       
-      // Report unscheduled tasks
-      const unscheduled = toSchedule.filter(t => !scheduledTaskIds.has(t.id));
+      // Report unscheduled tasks (check both regular tasks and split tasks)
+      const unscheduled = toSchedule.filter(t => {
+        if (taskChunksMap.has(t.id)) {
+          // For split tasks, check if at least one chunk was scheduled
+          return !originalTaskChunksScheduled.has(t.id);
+        } else {
+          // For regular tasks, check if scheduled
+          return !scheduledTaskIds.has(t.id);
+        }
+      });
+      
       if (unscheduled.length > 0) {
         unscheduled.forEach(task => {
           showToast(`Could not schedule "${task.title}"`, 'error');
@@ -1949,10 +1809,49 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
       console.error('AI Scheduling error:', error);
       showToast(`AI scheduling failed: ${error.message}. Using fallback algorithm...`, 'error');
       
-      // Fallback to original algorithm
+      // Fallback to original algorithm with task splitting support
       setTimeout(() => {
+      // Use the same task splitting logic
+      const MAX_CHUNK_DURATION = 2;
+      const MIN_TASK_DURATION_TO_SPLIT = 3;
+      
+      const tasksToScheduleFallback = [];
+      const taskChunksMapFallback = new Map();
+      
+      for (const task of toSchedule) {
+        if (task.duration > MIN_TASK_DURATION_TO_SPLIT) {
+          const numChunks = Math.ceil(task.duration / MAX_CHUNK_DURATION);
+          const chunkDuration = task.duration / numChunks;
+          const chunks = [];
+          
+          for (let i = 0; i < numChunks; i++) {
+            chunks.push({
+              id: `${task.id}-chunk-${i + 1}`,
+              originalTaskId: task.id,
+              chunkIndex: i + 1,
+              totalChunks: numChunks,
+              duration: i === numChunks - 1 ? (task.duration - (chunkDuration * (numChunks - 1))) : chunkDuration,
+              title: `${task.title} (Part ${i + 1}/${numChunks})`,
+              priority: task.priority,
+              projectId: task.projectId
+            });
+            tasksToScheduleFallback.push(chunks[i]);
+          }
+          taskChunksMapFallback.set(task.id, chunks);
+        } else {
+          tasksToScheduleFallback.push({
+            id: task.id,
+            originalTaskId: undefined,
+            duration: task.duration,
+            title: task.title,
+            priority: task.priority,
+            projectId: task.projectId
+          });
+        }
+      }
+      
       // Sort by priority (high first) and duration (shorter first for flexibility)
-      const sortedTasks = [...toSchedule].sort((a, b) => {
+      const sortedTasks = [...tasksToScheduleFallback].sort((a, b) => {
         const priorityDiff = getPriorityWeight(b.priority) - getPriorityWeight(a.priority);
         if (priorityDiff !== 0) return priorityDiff;
         return a.duration - b.duration;
@@ -1960,8 +1859,21 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
 
       const newScheduleItems = [];
       let scheduleCounter = 0; // Counter to ensure unique IDs even when created in same millisecond
+      const scheduledChunksFallback = new Set();
+      const scheduledTasksFallback = new Set();
 
-      for (const task of sortedTasks) {
+      for (const taskOrChunk of sortedTasks) {
+        const isChunk = taskOrChunk.originalTaskId !== undefined;
+        const originalTaskId = isChunk ? taskOrChunk.originalTaskId : taskOrChunk.id;
+        const originalTask = toSchedule.find(t => t.id === originalTaskId);
+        
+        if (!originalTask) continue;
+        
+        // Skip if already scheduled
+        if (isChunk && scheduledChunksFallback.has(taskOrChunk.id)) continue;
+        if (!isChunk && scheduledTasksFallback.has(originalTaskId)) continue;
+        
+        const task = originalTask;
         scheduleCounter++;
         let scheduled = false;
         
@@ -2033,16 +1945,25 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
         // Check before first occupied slot
         if (mergedSlots.length === 0) {
           // No occupied slots, use entire workday
-          if (workdayEnd - workdayStart >= task.duration) {
-            newScheduleItems.push({
-              id: generateUniqueId(`schedule-${task.id}-`),
-              taskId: task.id,
-              taskTitle: task.title,
-              start: hoursToTime(workdayStart),
-              duration: task.duration,
-              date: formatDateForStorage(selectedDate)
-            });
-            scheduled = true;
+          if (workdayEnd - workdayStart >= taskDuration) {
+            const startTime = hoursToTime(workdayStart);
+            const conflict = checkConflict(startTime, taskDuration, originalTaskId, selectedDateStr);
+            if (!conflict.conflict) {
+              newScheduleItems.push({
+                id: generateUniqueId(`schedule-${originalTaskId}-${isChunk ? `chunk${taskOrChunk.chunkIndex}` : ''}-`),
+                taskId: originalTaskId,
+                taskTitle: taskTitle,
+                start: startTime,
+                duration: taskDuration,
+                date: formatDateForStorage(selectedDate),
+                isChunk: isChunk,
+                chunkIndex: isChunk ? taskOrChunk.chunkIndex : undefined,
+                totalChunks: isChunk ? taskOrChunk.totalChunks : undefined
+              });
+              scheduled = true;
+              if (isChunk) scheduledChunksFallback.add(taskOrChunk.id);
+              else scheduledTasksFallback.add(originalTaskId);
+            }
           }
         } else {
           // Check gap before first slot
@@ -2050,16 +1971,25 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
           const firstGapEnd = mergedSlots[0].start;
           const firstGapDuration = firstGapEnd - firstGapStart;
           
-          if (firstGapDuration >= task.duration && firstGapStart < firstGapEnd) {
-            newScheduleItems.push({
-              id: generateUniqueId(`schedule-${task.id}-`),
-              taskId: task.id,
-              taskTitle: task.title,
-              start: hoursToTime(firstGapStart),
-              duration: task.duration,
-              date: formatDateForStorage(selectedDate)
-            });
-            scheduled = true;
+          if (firstGapDuration >= taskDuration && firstGapStart < firstGapEnd) {
+            const startTime = hoursToTime(firstGapStart);
+            const conflict = checkConflict(startTime, taskDuration, originalTaskId, selectedDateStr);
+            if (!conflict.conflict) {
+              newScheduleItems.push({
+                id: generateUniqueId(`schedule-${originalTaskId}-${isChunk ? `chunk${taskOrChunk.chunkIndex}` : ''}-`),
+                taskId: originalTaskId,
+                taskTitle: taskTitle,
+                start: startTime,
+                duration: taskDuration,
+                date: formatDateForStorage(selectedDate),
+                isChunk: isChunk,
+                chunkIndex: isChunk ? taskOrChunk.chunkIndex : undefined,
+                totalChunks: isChunk ? taskOrChunk.totalChunks : undefined
+              });
+              scheduled = true;
+              if (isChunk) scheduledChunksFallback.add(taskOrChunk.id);
+              else scheduledTasksFallback.add(originalTaskId);
+            }
           }
           
           // Check gaps between merged slots
@@ -2070,17 +2000,26 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
               const gapDuration = gapEnd - gapStart;
               
               // Check if gap is valid and large enough
-              if (gapStart < gapEnd && gapDuration >= task.duration && gapStart >= workdayStart && gapEnd <= workdayEnd) {
-                newScheduleItems.push({
-                  id: generateUniqueId(`schedule-${task.id}-`),
-                  taskId: task.id,
-                  taskTitle: task.title,
-                  start: hoursToTime(gapStart),
-                  duration: task.duration,
-                  date: formatDateForStorage(selectedDate)
-                });
-                scheduled = true;
-                break;
+              if (gapStart < gapEnd && gapDuration >= taskDuration && gapStart >= workdayStart && gapEnd <= workdayEnd) {
+                const startTime = hoursToTime(gapStart);
+                const conflict = checkConflict(startTime, taskDuration, originalTaskId, selectedDateStr);
+                if (!conflict.conflict) {
+                  newScheduleItems.push({
+                    id: generateUniqueId(`schedule-${originalTaskId}-${isChunk ? `chunk${taskOrChunk.chunkIndex}` : ''}-`),
+                    taskId: originalTaskId,
+                    taskTitle: taskTitle,
+                    start: startTime,
+                    duration: taskDuration,
+                    date: formatDateForStorage(selectedDate),
+                    isChunk: isChunk,
+                    chunkIndex: isChunk ? taskOrChunk.chunkIndex : undefined,
+                    totalChunks: isChunk ? taskOrChunk.totalChunks : undefined
+                  });
+                  scheduled = true;
+                  if (isChunk) scheduledChunksFallback.add(taskOrChunk.id);
+                  else scheduledTasksFallback.add(originalTaskId);
+                  break;
+                }
               }
             }
           }
@@ -2093,21 +2032,77 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
             const gapDuration = gapEnd - gapStart;
             
             // Check if gap is valid and large enough
-            if (gapStart < gapEnd && gapDuration >= task.duration && gapStart >= workdayStart && gapStart < workdayEnd) {
-              newScheduleItems.push({
-                id: generateUniqueId(`schedule-${task.id}-`),
-                taskId: task.id,
-                taskTitle: task.title,
-                start: hoursToTime(gapStart),
-                duration: task.duration,
-                date: formatDateForStorage(selectedDate)
-              });
-              scheduled = true;
+            if (gapStart < gapEnd && gapDuration >= taskDuration && gapStart >= workdayStart && gapStart < workdayEnd) {
+              const startTime = hoursToTime(gapStart);
+              const conflict = checkConflict(startTime, taskDuration, originalTaskId, selectedDateStr);
+              if (!conflict.conflict) {
+                newScheduleItems.push({
+                  id: generateUniqueId(`schedule-${originalTaskId}-${isChunk ? `chunk${taskOrChunk.chunkIndex}` : ''}-`),
+                  taskId: originalTaskId,
+                  taskTitle: taskTitle,
+                  start: startTime,
+                  duration: taskDuration,
+                  date: formatDateForStorage(selectedDate),
+                  isChunk: isChunk,
+                  chunkIndex: isChunk ? taskOrChunk.chunkIndex : undefined,
+                  totalChunks: isChunk ? taskOrChunk.totalChunks : undefined
+                });
+                scheduled = true;
+                if (isChunk) scheduledChunksFallback.add(taskOrChunk.id);
+                else scheduledTasksFallback.add(originalTaskId);
+              }
             }
           }
         }
 
         if (!scheduled) {
+          // For chunks, try to find a later slot (space them out)
+          if (isChunk && taskOrChunk.chunkIndex > 1) {
+            // Try to find a slot later in the day for subsequent chunks
+            const minGapAfterPrevious = 1; // At least 1 hour gap between chunks
+            const previousChunk = newScheduleItems.find(item => 
+              item.taskId === originalTaskId && 
+              item.isChunk && 
+              item.chunkIndex === taskOrChunk.chunkIndex - 1
+            );
+            
+            if (previousChunk) {
+              const prevEnd = timeToHours(previousChunk.start) + previousChunk.duration;
+              const minStart = prevEnd + minGapAfterPrevious;
+              
+              // Check gaps after minimum start time
+              for (let i = 0; i < mergedSlots.length && !scheduled; i++) {
+                const slot = mergedSlots[i];
+                if (slot.end <= minStart) continue; // Too early
+                
+                const gapStart = Math.max(slot.end, minStart);
+                const gapEnd = i < mergedSlots.length - 1 ? mergedSlots[i + 1].start : workdayEnd;
+                const gapDuration = gapEnd - gapStart;
+                
+                if (gapDuration >= taskDuration && gapStart < workdayEnd) {
+                  const startTime = hoursToTime(gapStart);
+                  const conflict = checkConflict(startTime, taskDuration, originalTaskId, selectedDateStr);
+                  if (!conflict.conflict) {
+                    newScheduleItems.push({
+                      id: generateUniqueId(`schedule-${originalTaskId}-chunk${taskOrChunk.chunkIndex}-`),
+                      taskId: originalTaskId,
+                      taskTitle: taskTitle,
+                      start: startTime,
+                      duration: taskDuration,
+                      date: formatDateForStorage(selectedDate),
+                      isChunk: true,
+                      chunkIndex: taskOrChunk.chunkIndex,
+                      totalChunks: taskOrChunk.totalChunks
+                    });
+                    scheduled = true;
+                    scheduledChunksFallback.add(taskOrChunk.id);
+                    break;
+                  }
+                }
+              }
+            }
+          }
+          
           // Calculate total free time more accurately - only count time within workday
           let totalOccupied = 0;
           mergedSlots.forEach(slot => {
@@ -2137,12 +2132,22 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
     }
   };
 
+  // HOUR_HEIGHT constant - must match CalendarPage.jsx
+  const HOUR_HEIGHT = 70;
+  const CALENDAR_TOP_OFFSET = 8; // Top padding offset - must match CalendarPage.jsx
+  
   // Calculate hour from mouse/touch position
   const getHourFromPosition = (e, container) => {
     const rect = container.getBoundingClientRect();
     // Support both mouse and touch events
     const y = (e.clientY || (e.touches && e.touches[0]?.clientY) || e.changedTouches?.[0]?.clientY) - rect.top;
-    const hourOffset = y / 80; // Each hour is 80px
+    // Account for top padding offset
+    const yRelative = y - CALENDAR_TOP_OFFSET;
+    // Only calculate if we're within the events layer bounds
+    if (yRelative < 0) {
+      return workdayStart;
+    }
+    const hourOffset = yRelative / HOUR_HEIGHT;
     const hour = workdayStart + hourOffset;
     return Math.max(workdayStart, Math.min(workdayEnd - 0.5, Math.floor(hour * 2) / 2)); // Round to nearest 0.5 hour
   };
@@ -2212,10 +2217,13 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
       if (touch.clientX >= rect.left && touch.clientX <= rect.right &&
           touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
         const y = touch.clientY - rect.top;
-        const hourOffset = y / 80;
-        const hour = workdayStart + hourOffset;
-        const roundedHour = Math.max(workdayStart, Math.min(workdayEnd - 0.5, Math.floor(hour * 2) / 2));
-        setDragOverTimeSlot(roundedHour);
+        const yRelative = y - CALENDAR_TOP_OFFSET;
+        if (yRelative >= 0) {
+          const hourOffset = yRelative / HOUR_HEIGHT;
+          const hour = workdayStart + hourOffset;
+          const roundedHour = Math.max(workdayStart, Math.min(workdayEnd - 0.5, Math.floor(hour * 2) / 2));
+          setDragOverTimeSlot(roundedHour);
+        }
       }
     }
   }, [workdayStart, workdayEnd]);
@@ -2468,7 +2476,8 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
   ];
 
   const currentHour = currentTime.getHours() + currentTime.getMinutes() / 60;
-  const currentTop = 16 + (currentHour - workdayStart) * 80; // 16px for top padding
+  // Calculate current time position - will be calculated in CalendarPage component
+  const currentTop = 0; // Not used anymore, calculated in component
 
   // Filter meetings and schedule by selected date - memoized for performance
   const selectedDateStr = useMemo(() => formatDateForStorage(selectedDate), [selectedDate, formatDateForStorage]);
@@ -2505,106 +2514,33 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
     return schedule.filter(s => (s.date || todayStr) === selectedDateStr);
   }, [schedule, selectedDateStr, todayStr]);
 
-  console.log('AIKanbanScheduler about to render JSX');
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans selection:bg-slate-200 dark:selection:bg-slate-700">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 text-slate-900 dark:text-slate-100 font-sans selection:bg-blue-200 dark:selection:bg-blue-900">
       {/* Loading Overlay */}
       {isLoading && <LoadingOverlay message="AI is organizing your schedule..." />}
       
-      {/* Toast Container */}
-      <div className="fixed top-16 sm:top-4 right-2 sm:right-4 left-2 sm:left-auto z-[60] pointer-events-none space-y-2 max-w-[calc(100vw-1rem)] sm:max-w-sm">
-        {toasts.map(t => (
-          <div key={t.id} className="pointer-events-auto"><Toast {...t} onClose={() => setToasts(p => p.filter(x => x.id !== t.id))} /></div>
-        ))}
-      </div>
+      {/* Toast Container - Only for brief messages */}
+      {toasts.length > 0 && (
+        <div className="fixed top-20 sm:top-6 right-4 sm:right-6 left-4 sm:left-auto z-[60] pointer-events-none space-y-3 max-w-[calc(100vw-2rem)] sm:max-w-sm">
+          {toasts.map(t => (
+            <div key={t.id} className="pointer-events-auto scale-in"><Toast {...t} onClose={() => setToasts(p => p.filter(x => x.id !== t.id))} /></div>
+          ))}
+        </div>
+      )}
 
       {/* Top Header Bar */}
-      <header className="sticky top-0 z-40 bg-white/80 dark:bg-slate-900/80 backdrop-blur-lg border-b border-slate-200/60 dark:border-slate-700/60 shadow-sm">
-        <div className="max-w-[1920px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0 py-3 sm:py-0 sm:h-16">
-            <div className="flex items-center gap-3 sm:gap-6">
-          <div className="flex items-center gap-2">
-                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-slate-900 to-slate-700 dark:from-slate-100 dark:to-slate-300 flex items-center justify-center">
-                  <Sparkles size={16} className="sm:w-[18px] sm:h-[18px] text-white dark:text-slate-900" />
-                </div>
-          <div>
-                  <h1 className="text-lg sm:text-xl font-semibold text-slate-900 dark:text-white tracking-tight">
-                    FocusBoard
-                  </h1>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 hidden sm:block mt-0.5">Daily planner & project tracker</p>
-          </div>
-          </div>
-              
-              {/* Navigation Tabs */}
-              <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-100 dark:bg-slate-800 rounded-md p-0.5 sm:p-1 border border-slate-200 dark:border-slate-700">
-                <button
-                  onClick={() => setActivePage('calendar')}
-                  className={`px-2.5 sm:px-3 py-1.5 rounded text-xs sm:text-sm font-medium transition-all ${
-                    activePage === 'calendar'
-                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  <div className="flex items-center gap-1 sm:gap-1.5">
-                    <CalendarIcon size={14} className="sm:w-[15px] sm:h-[15px]" />
-                    <span className="hidden xs:inline sm:inline">Calendar</span>
-                  </div>
-            </button>
-                <button
-                  onClick={() => setActivePage('tasks')}
-                  className={`px-2.5 sm:px-3 py-1.5 rounded text-xs sm:text-sm font-medium transition-all ${
-                    activePage === 'tasks'
-                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  <div className="flex items-center gap-1 sm:gap-1.5">
-                    <Folder size={14} className="sm:w-[15px] sm:h-[15px]" />
-                    <span className="hidden xs:inline sm:inline">Tasks</span>
-                  </div>
-                </button>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5 sm:gap-2">
-              <button 
-                onClick={() => {
-                  const newValue = !darkMode;
-                  console.log('Dark mode toggle: changing from', darkMode, 'to', newValue);
-                  setDarkMode(newValue);
-                }}
-                className="flex items-center justify-center w-9 h-9 sm:w-auto sm:h-auto sm:gap-2 px-2 sm:px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-sm font-medium text-slate-700 dark:text-slate-300"
-                title={darkMode ? 'Light mode' : 'Dark mode'}
-                type="button"
-              >
-                {darkMode ? <Sun size={18} className="sm:w-4 sm:h-4" /> : <Moon size={18} className="sm:w-4 sm:h-4" />}
-              </button>
-              {activePage === 'calendar' && (
-                <>
-                  <button
-                    onClick={() => setShowCalendarIntegration(true)}
-                    className="flex items-center justify-center sm:justify-start gap-1.5 px-2.5 sm:px-3 py-2 rounded-md bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 text-sm font-medium transition-colors min-w-[44px] sm:min-w-0"
-                    title="Import from Outlook/Google Calendar"
-                  >
-                    <CalendarIcon size={16} className="sm:w-[15px] sm:h-[15px]" />
-                    <span className="hidden sm:inline">Import</span>
-                  </button>
-                  <button 
-                    onClick={() => {
-                      setNewMeetingProject(projects.length > 0 ? projects[0].id : 1);
-                      setShowMeetingForm(true);
-                    }} 
-                    className="flex items-center justify-center sm:justify-start gap-1.5 px-2.5 sm:px-3 py-2 rounded-md bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-slate-200 text-white dark:text-slate-900 text-sm font-medium transition-colors min-w-[44px] sm:min-w-0"
-                  >
-                    <Plus size={16} className="sm:w-[15px] sm:h-[15px]" />
-                    <span className="hidden sm:inline">Meeting</span>
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-          </div>
-        </header>
+      <AppHeader
+        activePage={activePage}
+        setActivePage={setActivePage}
+        isAuthenticated={isAuthenticated}
+        user={user}
+        signOut={signOut}
+        navigate={navigate}
+        onOpenSettings={() => setShowSettings(true)}
+        onOpenNotifications={() => setShowNotificationCenter(true)}
+        unreadNotificationCount={notifications.filter(n => !n.read).length}
+      />
 
         {/* Project Modal */}
         <ProjectModal
@@ -2631,1350 +2567,221 @@ IMPORTANT: The tasks are already sorted by priority in the list above. Schedule 
           }}
         />
 
-        <CalendarIntegration
-          isOpen={showCalendarIntegration}
-          onClose={() => setShowCalendarIntegration(false)}
-          onImportMeetings={importMeetingsFromCalendar}
-          showToast={showToast}
-        />
-
       {/* Main Content */}
-      <div className="max-w-[1920px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6">
+      <div className="max-w-[1920px] mx-auto px-3 sm:px-4 lg:px-6 xl:px-8 py-4 sm:py-5 lg:py-6">
         
         {/* Calendar Page */}
         {activePage === 'calendar' && (
-          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-          <div className="p-3 sm:p-4 border-b border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0 bg-white dark:bg-slate-800">
-            <div className="flex items-center gap-2 sm:gap-3">
-              <div className="p-1.5 sm:p-2 bg-slate-100 dark:bg-slate-700 rounded-md">
-                <CalendarIcon className="text-slate-700 dark:text-slate-300 w-4 h-4 sm:w-[18px] sm:h-[18px]" />
-              </div>
-              <div className="flex items-center gap-2 sm:gap-3 flex-1">
-                <div className="flex-1 min-w-0">
-                  <h2 className="font-bold text-base sm:text-lg text-slate-900 dark:text-white truncate">
-                    {isToday(selectedDate) ? "Today's Schedule" : "Schedule"}
-                  </h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">{formatDate(selectedDate)}</p>
-                </div>
-                {/* Date Navigation */}
-                <div className="flex items-center gap-0.5 sm:gap-1">
-                <button 
-                    onClick={() => navigateDate(-1)}
-                    className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center"
-                    title="Previous day"
-                  >
-                    <ChevronLeft size={18} className="sm:w-4 sm:h-4 text-slate-600 dark:text-slate-300" />
-                  </button>
-                  <button
-                    onClick={goToToday}
-                    className={`px-2.5 sm:px-3 py-1.5 rounded-md text-xs font-medium transition-colors min-h-[44px] sm:min-h-0 ${
-                      isToday(selectedDate)
-                        ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
-                        : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-                    }`}
-                  >
-                    Today
-                  </button>
-                  <button
-                    onClick={() => navigateDate(1)}
-                    className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center"
-                    title="Next day"
-                  >
-                    <ChevronRight size={18} className="sm:w-4 sm:h-4 text-slate-600 dark:text-slate-300" />
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-              {isAuthenticated ? (
-                <div className="flex items-center gap-2 px-2.5 sm:px-3 py-2 bg-slate-50 dark:bg-slate-700 rounded-md border border-slate-200 dark:border-slate-600">
-                  <User size={16} className="sm:w-[15px] sm:h-[15px] text-slate-600 dark:text-slate-300" />
-                  <span className="hidden sm:inline text-sm font-medium text-slate-700 dark:text-slate-300">{user?.name || user?.email}</span>
-                  <button
-                    onClick={signOut}
-                    className="ml-1 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 transition-colors"
-                    title="Sign out"
-                  >
-                    <LogOut size={14} />
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <Link
-                    to="/signup"
-                    className="flex items-center justify-center sm:justify-start gap-1.5 px-2.5 sm:px-3 py-2 bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-slate-200 text-white dark:text-slate-900 rounded-md transition-colors text-sm font-medium min-w-[44px] sm:min-w-0 min-h-[44px] sm:min-h-0"
-                    title="Create account"
-                  >
-                    <User size={16} className="sm:w-[15px] sm:h-[15px]" />
-                    <span className="hidden sm:inline">Sign Up</span>
-                  </Link>
-                  <button
-                    onClick={() => navigate('/signin')}
-                    className="flex items-center justify-center sm:justify-start gap-1.5 px-2.5 sm:px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md transition-colors text-sm font-medium min-w-[44px] sm:min-w-0 min-h-[44px] sm:min-h-0"
-                    title="Sign in to sync data"
-                  >
-                    <LogIn size={16} className="sm:w-[15px] sm:h-[15px]" />
-                    <span className="hidden sm:inline">Sign In</span>
-                  </button>
-                </>
-              )}
-              <button 
-                onClick={() => setShowChatBot(true)}
-                className="flex items-center justify-center sm:justify-start gap-1.5 px-2.5 sm:px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md transition-colors text-sm font-medium min-w-[44px] sm:min-w-0 min-h-[44px] sm:min-h-0"
-                title="Chat with AI about calendar preferences"
-              >
-                <Bot size={16} className="sm:w-[15px] sm:h-[15px]" />
-                <span className="hidden sm:inline">AI Assistant</span>
-              </button>
-              <button 
-                onClick={generateSchedule}
-                disabled={isLoading}
-                className="flex items-center justify-center sm:justify-start gap-1.5 px-2.5 sm:px-3 py-2 bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-slate-200 text-white dark:text-slate-900 rounded-md transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed min-w-[44px] sm:min-w-0 min-h-[44px] sm:min-h-0"
-                title="AI Generate Schedule"
-              >
-                {isLoading ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white dark:border-slate-900 border-t-transparent rounded-full animate-spin"></div>
-                    <span className="hidden sm:inline">Scheduling...</span>
-                  </>
-                ) : (
-                  <>
-                    <Wand2 size={16} className="sm:w-[15px] sm:h-[15px]" />
-                    <span className="hidden sm:inline">Auto Schedule</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-
-          <div className="h-[calc(100vh-240px)] sm:h-[calc(100vh-280px)] min-h-[400px] sm:min-h-[500px] overflow-y-auto relative bg-white dark:bg-slate-800 calendar-container pt-4">
-            {/* Time Indicators */}
-            <div className="absolute top-4 left-0 bottom-0 w-12 sm:w-16 border-r border-slate-100 dark:border-slate-700 bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm z-10">
-              {Array.from({ length: workdayEnd - workdayStart }).map((_, i) => {
-                const hour = workdayStart + i;
-                const isLastHour = hour === workdayEnd - 1;
-                return (
-                  <div key={i} className={`h-[80px] border-b relative group ${isLastHour ? 'border-slate-300 dark:border-slate-600' : 'border-transparent'}`}>
-                    <span className="absolute top-0 right-1 sm:right-2 text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium transition-colors">
-                      {hour}:00
-                    </span>
-                    <div className="absolute right-0 top-0 w-1 h-px bg-slate-200 dark:bg-slate-700"></div>
-                    {isLastHour && (
-                      <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-slate-400 dark:via-slate-500 to-transparent"></div>
-                    )}
-                  </div>
-                );
-              })}
-              {/* Workday End Indicator */}
-              <div className="absolute left-0 right-0 border-t-2 border-dashed border-slate-400 dark:border-slate-500 bg-slate-50/50 dark:bg-slate-700/30" style={{ top: `${(workdayEnd - workdayStart) * 80}px` }}>
-                <div className="flex items-center gap-2 px-2 py-1">
-                  <div className="flex-1 h-px bg-slate-300 dark:bg-slate-600"></div>
-                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide">End of Workday</span>
-                  <div className="flex-1 h-px bg-slate-300 dark:bg-slate-600"></div>
-                </div>
-          </div>
-        </div>
-
-            {/* Current Time Line */}
-            {currentHour >= workdayStart && currentHour <= workdayEnd && (
-              <div 
-                className="absolute left-12 sm:left-16 right-0 z-30 pointer-events-none"
-                style={{ top: `${currentTop}px` }}
-              >
-                {/* Red line across the calendar */}
-                <div className="absolute left-0 right-0 border-t-2 border-red-500 shadow-lg"></div>
-                {/* Red circle indicator on the left */}
-                <div className="absolute -left-2 top-1/2 -translate-y-1/2 w-3 h-3 bg-red-500 rounded-full shadow-lg ring-2 ring-white dark:ring-slate-800"></div>
-                {/* Time label */}
-                <div className="absolute left-2 top-1/2 -translate-y-1/2 bg-red-500 dark:bg-red-600 text-white text-xs font-semibold px-2 py-0.5 rounded shadow-lg">
-                  {currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                </div>
-              </div>
-            )}
-
-            {/* Events Layer */}
-            <div 
-              className="absolute top-4 left-12 sm:left-16 right-0 bottom-0"
-              onDragOver={handleCalendarDragOver}
-              onDrop={handleCalendarDrop}
-              onDragLeave={handleCalendarDragLeave}
-            >
-              {/* Horizontal Grid Lines */}
-              {Array.from({ length: workdayEnd - workdayStart }).map((_, i) => {
-                const hour = workdayStart + i;
-                const isDragOver = dragOverTimeSlot !== null && Math.floor(dragOverTimeSlot) === hour;
-                const isLastHour = hour === workdayEnd - 1;
-                return (
-                  <div 
-                    key={i} 
-                    className={`h-[80px] border-b w-full relative ${
-                      isLastHour 
-                        ? 'border-slate-300 dark:border-slate-600 bg-slate-50/30 dark:bg-slate-700/20' 
-                        : isDragOver 
-                        ? 'bg-slate-50 dark:bg-slate-700/50 border-slate-300 dark:border-slate-600' 
-                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
-                    }`}
-                  >
-                    {isDragOver && (
-                      <div className="absolute inset-0 border-2 border-dashed border-slate-400 dark:border-slate-500 rounded bg-slate-50/50 dark:bg-slate-700/30 flex items-center justify-center pointer-events-none">
-                        <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Drop here</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              
-              {/* Workday End Line */}
-              <div 
-                className="absolute left-0 right-0 border-t-2 border-dashed border-slate-400 dark:border-slate-500 bg-slate-50/50 dark:bg-slate-700/30 z-20"
-                style={{ top: `${(workdayEnd - workdayStart) * 80}px` }}
-              >
-                <div className="absolute left-0 right-0 top-0 h-full bg-gradient-to-b from-transparent via-slate-100/50 dark:via-slate-700/30 to-transparent"></div>
-              </div>
-
-                {/* Scheduled Items */}
-                {/* 1. Meetings */}
-                {filteredMeetings.map(m => {
-                  const conflict = checkMeetingConflict(m.start, m.duration, m.id);
-                  const isDragging = draggedMeetingId === m.id;
-                  const project = getProject(m.projectId || 1);
-                  
-                  // Check if meeting time has passed or starts within 30 minutes (only for today's date)
-                  const isToday = selectedDateStr === todayStr;
-                  const startHours = timeToHours(m.start);
-                  const endHours = startHours + m.duration;
-                  const meetingEndTime = endHours;
-                  const timeUntilStart = startHours - currentHour;
-                  const isTimePassed = isToday && meetingEndTime < currentHour;
-                  const isOngoing = isToday && currentHour >= startHours && currentHour < endHours;
-                  const isStartingSoon = isToday && timeUntilStart > 0 && timeUntilStart <= 0.5; // 30 minutes = 0.5 hours
-                  // Allow dragging if ongoing, otherwise disable if time passed or starting soon (but not started yet)
-                  const cannotDrag = isTimePassed || (isStartingSoon && currentHour < startHours);
-                  
-                  return (
-                    <div 
-                      key={m.id}
-                      draggable={!cannotDrag}
-                      onDragStart={e => !cannotDrag && handleMeetingDragStart(e, m.id)}
-                      onDragEnd={handleDragEnd}
-                      onTouchStart={e => !cannotDrag && handleTouchStart(e, 'meeting', m.id)}
-                      className={`absolute left-4 right-6 rounded-lg bg-gradient-to-br from-slate-800 to-slate-900 dark:from-slate-700 dark:to-slate-800 text-white shadow-lg transition-all group overflow-hidden ${
-                        cannotDrag 
-                          ? 'opacity-50 grayscale cursor-not-allowed' 
-                          : 'hover:z-30 cursor-move hover:shadow-xl hover:shadow-slate-900/20 hover:scale-[1.02]'
-                      } ${
-                        conflict.conflict ? 'ring-2 ring-red-400/50' : ''
-                      } ${isDragging ? 'opacity-50 scale-95' : ''} ${
-                        m.duration < 1 ? 'p-1.5' : 'p-3'
-                      }`}
-                      title={isTimePassed ? "Meeting time has passed" : isOngoing ? "Meeting in progress - Drag to reschedule" : isStartingSoon ? "Meeting starts within 30 minutes - cannot reschedule" : "Meeting - Drag to reschedule"}
-                      style={{
-                        top: `${(timeToHours(m.start) - workdayStart) * 80}px`,
-                        height: `${Math.max(m.duration * 80, 40)}px`,
-                        minHeight: '40px',
-                        borderLeft: `4px solid ${cannotDrag ? '#9ca3af' : (conflict.conflict ? '#f87171' : colorToHex(project.color))}`,
-                        boxShadow: conflict.conflict ? '0 4px 6px -1px rgba(239, 68, 68, 0.3)' : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-                      }}
-                    >
-                      {/* Subtle background pattern */}
-                      <div className="absolute inset-0 opacity-5 bg-[radial-gradient(circle_at_1px_1px,white_1px,transparent_0)] [background-size:16px_16px]"></div>
-                      
-                      <div className="relative flex justify-between items-center h-full gap-2">
-                        <div className="overflow-hidden flex-1 min-w-0 flex items-center gap-2 flex-wrap">
-                          <div className="flex items-center gap-1.5 flex-shrink-0">
-                            <div className={`p-1 rounded-md ${isTimePassed ? 'bg-slate-700/30 dark:bg-slate-600/30' : 'bg-slate-700/50 dark:bg-slate-600/50'}`}>
-                              <Users size={m.duration < 1 ? 11 : 13} className={isTimePassed ? 'text-slate-400' : 'text-slate-200'} />
-                            </div>
-                            <span className={`font-semibold ${isTimePassed ? 'text-slate-400 bg-slate-700/30 dark:bg-slate-600/30' : 'text-slate-100 bg-slate-700/60 dark:bg-slate-600/60'} px-1.5 py-0.5 rounded-md uppercase tracking-wide flex-shrink-0 ${m.duration < 1 ? 'text-[8px]' : 'text-[9px]'}`}>Meeting</span>
-                          </div>
-                          <p className={`font-semibold ${isTimePassed ? 'text-slate-400' : 'text-white'} truncate flex-1 min-w-0 ${m.duration < 1 ? 'text-xs' : 'text-xs md:text-sm'}`}>{m.title}</p>
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            <Clock size={m.duration < 1 ? 9 : 10} className={isTimePassed ? 'text-slate-400 opacity-50' : 'text-slate-300 opacity-70'} />
-                            {(() => {
-                              const startHours = timeToHours(m.start);
-                              const endHours = startHours + m.duration;
-                              const endTime = hoursToTime(endHours);
-                              return (
-                                <p className={`${isTimePassed ? 'text-slate-400 opacity-60' : 'text-slate-300 opacity-90'} font-medium ${m.duration < 1 ? 'text-[9px]' : 'text-[10px]'}`}>{m.start} - {endTime}</p>
-                              );
-                            })()}
-                          </div>
-                          {m.duration >= 1 && (
-                            <div className={`w-px h-4 ${isTimePassed ? 'bg-slate-600/30' : 'bg-slate-600/50'} mx-0.5`}></div>
-                          )}
-                          <div className="flex items-center gap-1.5 flex-shrink-0">
-                            <div className={`w-2 h-2 rounded-full ${isTimePassed ? 'bg-slate-400' : project.color} ring-1 ring-slate-600/50`}></div>
-                            <span className={`${isTimePassed ? 'text-slate-400 bg-slate-700/30 dark:bg-slate-600/30' : 'text-slate-200 bg-slate-700/60 dark:bg-slate-600/60'} px-1.5 py-0.5 rounded-md font-medium ${m.duration < 1 ? 'text-[9px]' : 'text-[9px]'}`}>
-                              {project.name}
-                            </span>
-                          </div>
-                          {conflict.conflict && !isTimePassed && (
-                            <div className="flex items-center gap-1 flex-shrink-0 px-1.5 py-0.5 bg-red-500/20 rounded-md">
-                              <AlertTriangle size={m.duration < 1 ? 9 : 10} className="text-red-300" />
-                            </div>
-                          )}
-                        </div>
-                        <div className={`flex items-center gap-1 transition-opacity ${isTimePassed ? 'opacity-30' : 'opacity-0 group-hover:opacity-100'}`}>
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (!isTimePassed) startEditMeeting(m);
-                            }} 
-                            className="p-1 rounded-md hover:bg-slate-700/50 text-slate-300 hover:text-white transition-colors flex-shrink-0"
-                            title="Edit meeting"
-                            disabled={isTimePassed}
-                          >
-                            <Edit2 size={m.duration < 1 ? 12 : 14}/>
-                          </button>
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (!isTimePassed) setMeetings(meetings.filter(x => x.id !== m.id));
-                            }} 
-                            className="p-1 rounded-md hover:bg-red-500/20 text-slate-300 hover:text-red-300 transition-colors flex-shrink-0"
-                            title="Delete meeting"
-                            disabled={isTimePassed}
-                          >
-                            <X size={m.duration < 1 ? 12 : 14}/>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {/* 2. Tasks */}
-                {filteredSchedule.map((item, index) => {
-                  const task = tasks.find(t => t.id === item.taskId);
-                  if (!task) return null;
-                  const project = getProject(task.projectId);
-                  const conflict = checkConflict(item.start, item.duration, item.taskId);
-                  const isDragging = draggedScheduleItem === item.taskId;
-                  
-                  // Check if task time has passed or starts within 30 minutes (only for today's date)
-                  const isToday = selectedDateStr === todayStr;
-                  const startHours = timeToHours(item.start);
-                  const endHours = startHours + item.duration;
-                  const taskEndTime = endHours;
-                  const timeUntilStart = startHours - currentHour;
-                  const isTimePassed = isToday && taskEndTime < currentHour;
-                  const isOngoing = isToday && currentHour >= startHours && currentHour < endHours;
-                  const isStartingSoon = isToday && timeUntilStart > 0 && timeUntilStart <= 0.5; // 30 minutes = 0.5 hours
-                  // Allow dragging if ongoing, otherwise disable if time passed or starting soon (but not started yet)
-                  const cannotDrag = isTimePassed || (isStartingSoon && currentHour < startHours);
-                  
-                  // Ensure truly unique key - combine multiple identifiers
-                  const uniqueKey = item.id || `schedule-${item.taskId}-${item.start}-${item.date || formatDateForStorage(selectedDate)}-${index}`;
-                  
-                  return (
-                    <div 
-                      key={uniqueKey}
-                      draggable={!cannotDrag}
-                      onDragStart={e => !cannotDrag && handleScheduleItemDragStart(e, item.taskId)}
-                      onDragEnd={handleDragEnd}
-                      onTouchStart={e => !cannotDrag && handleTouchStart(e, 'schedule', item.taskId)}
-                      className={`absolute left-4 right-6 rounded-lg bg-gradient-to-br from-white to-slate-50 dark:from-slate-700 dark:to-slate-800 shadow-md border transition-all group ${
-                        cannotDrag 
-                          ? 'opacity-50 grayscale cursor-not-allowed' 
-                          : 'hover:shadow-lg hover:z-30 cursor-move hover:scale-[1.01]'
-                      } ${
-                        conflict.conflict ? 'border-red-300 dark:border-red-500 ring-2 ring-red-200/50 dark:ring-red-900/50' : 'border-slate-200 dark:border-slate-600 hover:border-slate-300 dark:hover:border-slate-500'
-                      } ${isDragging ? 'opacity-50 scale-95' : ''} ${
-                        item.duration < 1 ? 'p-1.5' : 'p-3'
-                      }`}
-                      title={isTimePassed ? "Task time has passed" : isOngoing ? "Task in progress - Drag to reschedule" : isStartingSoon ? "Task starts within 30 minutes - cannot reschedule" : "Task - Drag to reschedule"}
-                      style={{
-                        top: `${(timeToHours(item.start) - workdayStart) * 80}px`,
-                        height: `${Math.max(item.duration * 80, 40)}px`,
-                        minHeight: '40px',
-                        borderLeft: `4px solid ${cannotDrag ? '#9ca3af' : colorToHex(project.color)}`,
-                        boxShadow: conflict.conflict 
-                          ? '0 4px 6px -1px rgba(239, 68, 68, 0.2), 0 2px 4px -1px rgba(239, 68, 68, 0.1)' 
-                          : '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1)'
-                      }}
-                    >
-                      {/* Subtle background pattern */}
-                      <div className="absolute inset-0 opacity-[0.02] dark:opacity-[0.03] bg-[radial-gradient(circle_at_1px_1px,slate-900_1px,transparent_0)] [background-size:16px_16px]"></div>
-                      
-                      <div className="relative flex justify-between items-center h-full gap-2">
-                        <div className="overflow-hidden flex-1 min-w-0 flex items-center gap-2 flex-wrap">
-                          <div className="flex items-center gap-1.5 flex-shrink-0">
-                            <div className={`p-1 rounded-md ${isTimePassed ? 'bg-slate-200 dark:bg-slate-700' : 'bg-slate-100 dark:bg-slate-600/50'}`}>
-                              <CheckSquare size={item.duration < 1 ? 11 : 13} className={isTimePassed ? 'text-slate-400 dark:text-slate-500' : 'text-slate-600 dark:text-slate-300'} />
-                            </div>
-                            <span className={`font-semibold ${isTimePassed ? 'text-slate-400 dark:text-slate-500 bg-slate-200 dark:bg-slate-700' : 'text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-600/50'} px-1.5 py-0.5 rounded-md uppercase tracking-wide flex-shrink-0 ${item.duration < 1 ? 'text-[8px]' : 'text-[9px]'}`}>Task</span>
-                          </div>
-                          <p className={`font-semibold ${isTimePassed ? 'text-slate-400 dark:text-slate-500' : 'text-slate-800 dark:text-slate-100'} truncate flex-1 min-w-0 ${item.duration < 1 ? 'text-xs' : 'text-xs md:text-sm'}`}>{task.title}</p>
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            <Clock size={item.duration < 1 ? 9 : 10} className={isTimePassed ? 'text-slate-400 dark:text-slate-500' : 'text-slate-500 dark:text-slate-400'} />
-                            {(() => {
-                              const startHours = timeToHours(item.start);
-                              const endHours = startHours + item.duration;
-                              const endTime = hoursToTime(endHours);
-                              return (
-                                <p className={`${isTimePassed ? 'text-slate-400 dark:text-slate-500' : 'text-slate-600 dark:text-slate-300'} font-medium ${item.duration < 1 ? 'text-[9px]' : 'text-[10px]'}`}>{item.start} - {endTime}</p>
-                              );
-                            })()}
-                          </div>
-                          {item.duration >= 1 && (
-                            <div className={`w-px h-4 ${isTimePassed ? 'bg-slate-300 dark:bg-slate-600' : 'bg-slate-300 dark:bg-slate-600'} mx-0.5`}></div>
-                          )}
-                          <div className="flex items-center gap-1.5 flex-shrink-0">
-                            <div className={`w-2 h-2 rounded-full ${isTimePassed ? 'bg-slate-400 dark:bg-slate-500' : project.color} ring-1 ring-slate-300/50 dark:ring-slate-600/50`}></div>
-                            <span className={`${isTimePassed ? 'text-slate-400 dark:text-slate-500 bg-slate-200 dark:bg-slate-700' : 'text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-600/50'} px-1.5 py-0.5 rounded-md font-medium ${item.duration < 1 ? 'text-[9px]' : 'text-[9px]'}`}>
-                              {project.name}
-                            </span>
-                          </div>
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-semibold border flex-shrink-0 ${isTimePassed ? 'text-slate-400 dark:text-slate-500 bg-slate-200 dark:bg-slate-700 border-slate-300 dark:border-slate-600' : getPriorityColor(task.priority)}`}>
-                            {task.priority}
-                          </span>
-                          {conflict.conflict && !isTimePassed && (
-                            <div className="flex items-center gap-1 flex-shrink-0 px-1.5 py-0.5 bg-red-100 dark:bg-red-900/30 rounded-md">
-                              <AlertTriangle size={item.duration < 1 ? 9 : 10} className="text-red-500 dark:text-red-400" />
-                            </div>
-                          )}
-                        </div>
-                        <button 
-                          onClick={() => setSchedule(schedule.filter(s => s.taskId !== item.taskId))} 
-                          className={`p-1 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-all flex-shrink-0 ${isTimePassed ? 'opacity-50' : 'opacity-0 group-hover:opacity-100'}`}
-                          title="Remove from schedule"
-                          disabled={isTimePassed}
-                        >
-                          <X size={item.duration < 1 ? 12 : 14}/>
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
+          <CalendarPage
+            activePage={activePage}
+            setActivePage={setActivePage}
+            selectedDate={selectedDate}
+            navigateDate={navigateDate}
+            goToToday={goToToday}
+            isToday={isToday}
+            formatDate={formatDate}
+            projects={projects}
+            setNewMeetingProject={setNewMeetingProject}
+            setShowMeetingForm={setShowMeetingForm}
+            generateSchedule={generateSchedule}
+            isLoading={isLoading}
+            workdayStart={workdayStart}
+            workdayEnd={workdayEnd}
+            currentHour={currentHour}
+            currentTime={currentTime}
+            currentTop={currentTop}
+            handleCalendarDragOver={handleCalendarDragOver}
+            handleCalendarDrop={handleCalendarDrop}
+            handleCalendarDragLeave={handleCalendarDragLeave}
+            dragOverTimeSlot={dragOverTimeSlot}
+            filteredMeetings={filteredMeetings}
+            checkMeetingConflict={checkMeetingConflict}
+            draggedMeetingId={draggedMeetingId}
+            getProject={getProject}
+            colorToHex={colorToHex}
+            handleMeetingDragStart={handleMeetingDragStart}
+            handleDragEnd={handleDragEnd}
+            handleTouchStart={handleTouchStart}
+            startEditMeeting={startEditMeeting}
+            setMeetings={setMeetings}
+            meetings={meetings}
+            filteredSchedule={filteredSchedule}
+            tasks={tasks}
+            checkConflict={checkConflict}
+            draggedScheduleItem={draggedScheduleItem}
+            handleScheduleItemDragStart={handleScheduleItemDragStart}
+            setSchedule={setSchedule}
+            schedule={schedule}
+            selectedDateStr={selectedDateStr}
+            todayStr={todayStr}
+            getPriorityColor={getPriorityColor}
+            openBreakTimePicker={openBreakTimePicker}
+            showBreakTimePicker={showBreakTimePicker}
+            setShowBreakTimePicker={setShowBreakTimePicker}
+            selectedBreakType={selectedBreakType}
+            breakStartTime={breakStartTime}
+            setBreakStartTime={setBreakStartTime}
+            breakDuration={breakDuration}
+            setBreakDuration={setBreakDuration}
+            addQuickBreak={addQuickBreak}
+          />
         )}
 
         {/* Tasks Page */}
         {activePage === 'tasks' && (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden dark:text-slate-100">
-          <div className="p-4 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <h2 className="font-bold text-lg text-slate-900 dark:text-white">Tasks</h2>
-                <span className="text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded-full">
-                  {tasks.length} total
-                </span>
-              </div>
-              <button
-                onClick={() => openProjectModal()}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-slate-200 text-white dark:text-slate-900 text-sm font-medium transition-colors"
-                title="Manage Projects"
-              >
-                <Folder size={15} />
-                <span className="hidden sm:inline">Projects</span>
-              </button>
-            </div>
-            
-            {/* Projects Quick Filter */}
-            {projects.length > 0 && (
-              <div className="mb-4">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Filter by project:</span>
-                  <button
-                    onClick={() => setFilterProject('all')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                      filterProject === 'all'
-                        ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-sm'
-                        : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-                    }`}
-                  >
-                    All
-                  </button>
-                  {projects.map(project => {
-                    const taskCount = tasks.filter(t => t.projectId === project.id).length;
-                    return (
-                      <div
-                        key={project.id}
-                        className="group relative flex items-center"
-                      >
-                        <button
-                          onClick={() => setFilterProject(project.id)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${
-                            filterProject === project.id
-                              ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-sm'
-                              : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-                          }`}
-                        >
-                          <div className={`w-2 h-2 rounded-full ${project.color}`}></div>
-                          <span>{project.name}</span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                            filterProject === project.id
-                              ? 'bg-white/20 dark:bg-slate-900/20'
-                              : 'bg-white dark:bg-slate-800'
-                          }`}>
-                            {taskCount}
-                          </span>
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openProjectModal(project);
-                          }}
-                          className="ml-1 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-all text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
-                          title="Edit project"
-                        >
-                          <Edit2 size={12} />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Search, Filters, and Add Task Bar */}
-            <div className="flex flex-col sm:flex-row gap-3 mb-4">
-              {/* Left side: Search and Filters */}
-              <div className="flex-1 flex flex-col sm:flex-row gap-3">
-                <div className="flex-1 min-w-[200px] flex items-center gap-2 bg-white dark:bg-slate-700 rounded-md px-3 py-2 border border-slate-200 dark:border-slate-600 focus-within:ring-1 focus-within:ring-slate-400 focus-within:border-slate-400 transition-all">
-                  <Search size={16} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
-              <input 
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                    placeholder="Search tasks..."
-                    className="flex-1 bg-transparent outline-none text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500"
-              />
-                  {searchQuery && (
-                    <button
-                      onClick={() => setSearchQuery('')}
-                      className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-                <button 
-                  onClick={() => setShowFilters(!showFilters)}
-                  className={`flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm rounded-md transition-all whitespace-nowrap ${
-                    showFilters 
-                      ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 border border-slate-900 dark:border-slate-100' 
-                      : 'bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600'
-                  }`}
-                >
-                  <Filter size={14} />
-                  <span>Filters</span>
-                </button>
-              </div>
-              
-              {/* Right side: Add Task Button */}
-              <button 
-                onClick={() => {
-                  setNewTaskProject(projects.length > 0 ? projects[0].id : 1);
-                  setShowTaskForm(true);
-                }}
-                className="flex items-center justify-center gap-2 px-5 py-2.5 bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-slate-200 text-white dark:text-slate-900 rounded-md transition-all text-sm font-medium whitespace-nowrap"
-              >
-                <Plus size={18} />
-                <span>Add Task</span>
-              </button>
-            </div>
-
-            {/* Filter Options */}
-            {showFilters && (
-              <div className="mb-4 p-4 bg-slate-50 dark:bg-slate-700/30 rounded-lg border border-slate-200 dark:border-slate-600">
-                <div className="flex flex-wrap items-center gap-3">
-              <select 
-                    value={filterProject} 
-                    onChange={e => setFilterProject(e.target.value)}
-                    className="text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 px-3 py-2 rounded-md outline-none cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 focus:ring-1 focus:ring-slate-400 transition-colors text-slate-900 dark:text-slate-100"
-              >
-                    <option value="all">All Projects</option>
-                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-                  <select 
-                    value={filterPriority} 
-                    onChange={e => setFilterPriority(e.target.value)}
-                    className="text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 px-3 py-2 rounded-md outline-none cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 focus:ring-1 focus:ring-slate-400 transition-colors text-slate-900 dark:text-slate-100"
-                  >
-                    <option value="all">All Priorities</option>
-                    <option value="high">High</option>
-                    <option value="medium">Medium</option>
-                    <option value="low">Low</option>
-                  </select>
-                  <select 
-                    value={filterStatus} 
-                    onChange={e => setFilterStatus(e.target.value)}
-                    className="text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 px-3 py-2 rounded-md outline-none cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 focus:ring-1 focus:ring-slate-400 transition-colors text-slate-900 dark:text-slate-100"
-                  >
-                    <option value="all">All Status</option>
-                    <option value="backlog">Backlog</option>
-                    <option value="in-progress">In Progress</option>
-                    <option value="done">Done</option>
-                  </select>
-                  {(filterProject !== 'all' || filterPriority !== 'all' || filterStatus !== 'all' || searchQuery) && (
-                    <button 
-                      onClick={() => {
-                        setFilterProject('all');
-                        setFilterPriority('all');
-                        setFilterStatus('all');
-                        setSearchQuery('');
-                      }}
-                      className="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors border border-slate-200 dark:border-slate-600"
-                    >
-                      Clear Filters
-              </button>
-                  )}
-                </div>
-              </div>
-            )}
-            </div>
-
-          {/* Kanban Columns */}
-          <div className="p-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {columns.map(col => {
-                const taskCount = filteredTasks.filter(t => t.status === col.id).length;
-                const columnIcons = {
-                  'backlog': Folder,
-                  'in-progress': AlertCircle,
-                  'done': CheckCircle2
-                };
-                const Icon = columnIcons[col.id] || Folder;
-                
-                return (
-                <div 
-                  key={col.id}
-                  data-column-id={col.id}
-                  onDragOver={e => handleDragOver(e, col.id)}
-                  onDrop={e => handleDrop(e, col.id)}
-                  className={`rounded-xl p-4 min-h-[400px] transition-all border-2 ${
-                    dragOverColumn === col.id 
-                      ? 'ring-2 ring-slate-400 dark:ring-slate-500 ring-inset bg-slate-50 dark:bg-slate-700/50 border-slate-300 dark:border-slate-600' 
-                      : 'border-transparent'
-                  } ${col.bg}`}
-                >
-                  <div className="flex items-center justify-between mb-4 px-1">
-                    <div className="flex items-center gap-2">
-                      <div className={`p-1.5 rounded-lg ${
-                        col.id === 'backlog' ? 'bg-slate-100 dark:bg-slate-700' :
-                        col.id === 'in-progress' ? 'bg-blue-100 dark:bg-blue-900/30' :
-                        'bg-green-100 dark:bg-green-900/30'
-                      }`}>
-                        <Icon size={14} className={
-                          col.id === 'backlog' ? 'text-slate-600 dark:text-slate-300' :
-                          col.id === 'in-progress' ? 'text-blue-600 dark:text-blue-400' :
-                          'text-green-600 dark:text-green-400'
-                        } />
-                      </div>
-                      <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide">{col.title}</h3>
-                    </div>
-                    <span className={`text-xs px-2.5 py-1 rounded-full font-bold ${
-                      taskCount > 0 
-                        ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900' 
-                        : 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
-                    }`}>
-                      {taskCount}
-                    </span>
-                  </div>
-                  
-                  <div className="space-y-2.5">
-                    {taskCount === 0 && (
-                      <div className="flex flex-col items-center justify-center py-12 text-center">
-                        <div className="p-3 rounded-full bg-slate-100 dark:bg-slate-700/50 mb-3">
-                          <Icon size={20} className="text-slate-400 dark:text-slate-500" />
-                        </div>
-                        <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">No tasks</p>
-                        <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">Drag tasks here</p>
-                      </div>
-                    )}
-                    {filteredTasks.filter(t => t.status === col.id).map(task => {
-                      const project = getProject(task.projectId);
-                      const isEditing = editingTask === task.id;
-                      
-                      if (isEditing) {
-                        return (
-                          <div key={task.id} className="bg-white dark:bg-slate-700 p-3 rounded-md shadow-sm border-2 border-slate-300 dark:border-slate-500">
-                            <input
-                              value={editTaskTitle}
-                              onChange={e => setEditTaskTitle(e.target.value)}
-                              className="w-full px-2 py-1 mb-2 text-sm border border-slate-200 dark:border-slate-600 rounded outline-none focus:ring-1 focus:ring-slate-400 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                              autoFocus
-                            />
-                            <div className="flex gap-2 mb-2">
-                              <input
-                                type="number"
-                                value={editTaskDuration}
-                                onChange={e => setEditTaskDuration(Number(e.target.value))}
-                                className="w-16 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded outline-none focus:ring-1 focus:ring-slate-400 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                                min="0.5"
-                                step="0.5"
-                              />
-                              <select
-                                value={editTaskPriority}
-                                onChange={e => setEditTaskPriority(e.target.value)}
-                                className="flex-1 text-xs border border-slate-200 dark:border-slate-600 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-slate-400 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                              >
-                                <option value="low">Low</option>
-                                <option value="medium">Medium</option>
-                                <option value="high">High</option>
-                              </select>
-                              <select
-                                value={editTaskProject}
-                                onChange={e => setEditTaskProject(Number(e.target.value))}
-                                className="flex-1 text-xs border border-slate-200 dark:border-slate-600 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-slate-400 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                              >
-                                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                              </select>
-                            </div>
-                            <input
-                              type="date"
-                              value={editTaskDueDate}
-                              onChange={e => setEditTaskDueDate(e.target.value)}
-                              className="w-full px-2 py-1 mb-2 text-xs border border-slate-200 dark:border-slate-600 rounded outline-none focus:ring-1 focus:ring-indigo-500 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"
-                              placeholder="Due date (optional)"
-                            />
-                            <div className="flex gap-2">
-                              <button
-                                onClick={saveEditTask}
-                                className="flex-1 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 text-xs py-1.5 rounded-md hover:bg-slate-800 dark:hover:bg-slate-200 transition-colors"
-                              >
-                                Save
-                              </button>
-                              <button
-                                onClick={cancelEditTask}
-                                className="flex-1 bg-slate-100 dark:bg-slate-600 text-slate-700 dark:text-slate-200 text-xs py-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-500 transition-colors"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      }
-                      
-                      return (
-                        <div 
-                          key={task.id}
-                          draggable
-                          onDragStart={e => handleDragStart(e, task.id)}
-                          onDragEnd={handleDragEnd}
-                          onTouchStart={e => handleTouchStart(e, 'task', task.id)}
-                          className={`
-                            group relative bg-gradient-to-br from-white to-slate-50 dark:from-slate-700 dark:to-slate-800 p-3.5 rounded-xl shadow-md border border-slate-200 dark:border-slate-600
-                            hover:shadow-lg hover:border-slate-300 dark:hover:border-slate-500 transition-all cursor-grab active:cursor-grabbing
-                            ${draggedTaskId === task.id ? 'opacity-50 rotate-2 scale-95' : 'hover:scale-[1.02]'}
-                          `}
-                        >
-                          {/* Subtle background pattern */}
-                          <div className="absolute inset-0 opacity-[0.02] dark:opacity-[0.03] bg-[radial-gradient(circle_at_1px_1px,slate-900_1px,transparent_0)] [background-size:16px_16px] rounded-xl"></div>
-                          
-                          {/* Project color indicator - thicker and more prominent */}
-                          <div className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-r-full ${project.color} shadow-sm`}></div>
-                          
-                          <div className="relative pl-4 flex-1">
-                            <div className="flex items-start justify-between gap-2 mb-2.5">
-                              <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-snug flex-1">{task.title}</p>
-                              {task.notes && (
-                                <div className="p-1 rounded-md bg-slate-100 dark:bg-slate-600/50">
-                                  <FileText size={11} className="text-slate-500 dark:text-slate-400" />
-                                </div>
-                              )}
-                            </div>
-                            
-                            <div className="flex items-center gap-2 mt-3 flex-wrap">
-                              <span className={`text-[10px] font-bold tracking-wide uppercase px-2 py-1 rounded-md border ${getPriorityColor(task.priority)}`}>
-                                {task.priority}
-                              </span>
-                              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-100 dark:bg-slate-600/50">
-                                <div className={`w-2 h-2 rounded-full ${project.color} ring-1 ring-slate-300/50 dark:ring-slate-600/50`}></div>
-                                <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
-                                {project.name}
-                              </span>
-                              </div>
-                              <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-slate-100 dark:bg-slate-600/50 text-slate-600 dark:text-slate-300">
-                                <Clock size={10} />
-                                <span className="text-[10px] font-semibold">{task.duration}h</span>
-                              </div>
-                              {task.dueDate && (
-                                <div className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-md font-semibold ${
-                                  isOverdue(task.dueDate) 
-                                    ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800' 
-                                    : isDueSoon(task.dueDate)
-                                    ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-800'
-                                    : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800'
-                                }`}>
-                                  <Calendar size={9} />
-                                  <span>{new Date(task.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                            </div>
-                              )}
-                          </div>
-                          </div>
-                          
-                          <div className="absolute top-2.5 right-2.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                            <button 
-                              onClick={() => openTaskDetails(task)}
-                              className="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-600 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
-                              title="Task details"
-                            >
-                              <FileText size={13} />
-                            </button>
-                            <button 
-                              onClick={() => startEditTask(task)}
-                              className="p-1.5 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/20 text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                              title="Edit task"
-                            >
-                              <Edit2 size={13} />
-                            </button>
-                          <button 
-                            onClick={() => deleteTask(task.id)}
-                              className="p-1.5 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-colors"
-                              title="Delete task"
-                          >
-                              <X size={13} />
-                          </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-                );
-              })}
-            </div>
-          </div>
-          </div>
+          <TasksPage
+            activePage={activePage}
+            setActivePage={setActivePage}
+            tasks={tasks}
+            projects={projects}
+            filteredTasks={filteredTasks}
+            columns={columns}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            filterProject={filterProject}
+            setFilterProject={setFilterProject}
+            filterPriority={filterPriority}
+            setFilterPriority={setFilterPriority}
+            filterStatus={filterStatus}
+            setFilterStatus={setFilterStatus}
+            showFilters={showFilters}
+            setShowFilters={setShowFilters}
+            openProjectModal={openProjectModal}
+            setNewTaskProject={setNewTaskProject}
+            setShowTaskForm={setShowTaskForm}
+            editingTask={editingTask}
+            editTaskTitle={editTaskTitle}
+            setEditTaskTitle={setEditTaskTitle}
+            editTaskDuration={editTaskDuration}
+            setEditTaskDuration={setEditTaskDuration}
+            editTaskPriority={editTaskPriority}
+            setEditTaskPriority={setEditTaskPriority}
+            editTaskProject={editTaskProject}
+            setEditTaskProject={setEditTaskProject}
+            editTaskDueDate={editTaskDueDate}
+            setEditTaskDueDate={setEditTaskDueDate}
+            editTaskSticker={editTaskSticker}
+            setEditTaskSticker={setEditTaskSticker}
+            showEditStickerPicker={showEditStickerPicker}
+            setShowEditStickerPicker={setShowEditStickerPicker}
+            popularEmojis={popularEmojis}
+            saveEditTask={saveEditTask}
+            cancelEditTask={cancelEditTask}
+            handleDragStart={handleDragStart}
+            handleDragOver={handleDragOver}
+            handleDrop={handleDrop}
+            handleDragEnd={handleDragEnd}
+            handleTouchStart={handleTouchStart}
+            draggedTaskId={draggedTaskId}
+            dragOverColumn={dragOverColumn}
+            getProject={getProject}
+            getPriorityColor={getPriorityColor}
+            openTaskDetails={openTaskDetails}
+            startEditTask={startEditTask}
+            deleteTask={deleteTask}
+          />
         )}
-          </div>
+      </div>
 
-      {/* Modal: Task Details */}
       {selectedTask && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 w-full max-w-lg">
-            {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Task Details</h2>
-              <button 
-                onClick={() => setSelectedTask(null)} 
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            
-            {/* Content */}
-            <div className="p-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Task Title</label>
-                <p className="text-sm font-medium text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-700/50 px-3 py-2 rounded-md">{selectedTask.title}</p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Duration</label>
-                  <p className="text-sm text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-700/50 px-3 py-2 rounded-md">{selectedTask.duration}h</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Priority</label>
-                  <span className={`inline-block text-xs px-2 py-1.5 rounded-md border ${getPriorityColor(selectedTask.priority)}`}>
-                    {selectedTask.priority}
-                  </span>
-              </div>
-            </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Project</label>
-                <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-700/50 px-3 py-2 rounded-md">
-                  <div className={`w-3 h-3 rounded-full ${getProject(selectedTask.projectId).color}`}></div>
-                  <span className="text-sm text-slate-700 dark:text-slate-300">{getProject(selectedTask.projectId).name}</span>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Due Date</label>
-                <input
-                  type="date"
-                  value={taskDueDate}
-                  onChange={e => setTaskDueDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-600 rounded-md text-sm focus:ring-2 focus:ring-slate-400 focus:border-slate-400 outline-none bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
-                />
-                  </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Notes</label>
-                <textarea
-                  value={taskNotes}
-                  onChange={e => setTaskNotes(e.target.value)}
-                  rows={4}
-                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-600 rounded-md text-sm focus:ring-2 focus:ring-slate-400 focus:border-slate-400 outline-none bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 resize-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
-                  placeholder="Add notes, description, or additional details..."
-                />
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  onClick={() => setSelectedTask(null)}
-                  className="px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md text-sm font-medium hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={saveTaskDetails}
-                  className="px-4 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-md text-sm font-medium hover:bg-slate-800 dark:hover:bg-slate-200 transition-colors"
-                >
-                  Save Changes
-                </button>
-              </div>
-            </div>
-          </div>
-                </div>
-              )}
+        <TaskDetailsModal
+          task={selectedTask}
+          onClose={() => setSelectedTask(null)}
+          onSave={saveTaskDetails}
+          taskTitle={taskTitle}
+          setTaskTitle={setTaskTitle}
+          taskDueDate={taskDueDate}
+          setTaskDueDate={setTaskDueDate}
+          taskNotes={taskNotes}
+          setTaskNotes={setTaskNotes}
+          getProject={getProject}
+          getPriorityColor={getPriorityColor}
+        />
+      )}
 
       {/* Modal: Add Task */}
       {showTaskForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 w-full max-w-lg">
-            {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Create New Task</h2>
-              <button 
-                onClick={() => {
-                  setShowTaskForm(false);
-                  setNewTaskTitle('');
-                  setNewTaskDuration('1');
-                  setNewTaskPriority('medium');
-                  setNewTaskNotes('');
-                  setNewTaskDueDate('');
-                }} 
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            
-            {/* Form */}
-            <div className="p-4 space-y-4">
-                      <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                  Task Title <span className="text-red-500">*</span>
-                </label>
-                <input 
-                  value={newTaskTitle}
-                  onChange={e => {
-                    setNewTaskTitle(e.target.value);
-                    if (taskFormErrors.title) {
-                      setTaskFormErrors(prev => ({ ...prev, title: '' }));
-                    }
-                  }}
-                  className={`w-full h-10 px-3 border rounded-md text-sm focus:ring-2 outline-none bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 ${
-                    taskFormErrors.title 
-                      ? 'border-red-500 focus:ring-red-400 focus:border-red-500' 
-                      : 'border-slate-200 dark:border-slate-600 focus:ring-slate-400 focus:border-slate-400'
-                  }`}
-                  placeholder="e.g. Design landing page"
-                  autoFocus
-                />
-                {taskFormErrors.title && (
-                  <p className="mt-1 text-sm text-red-600 dark:text-red-400">{taskFormErrors.title}</p>
-                )}
-                      </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                    Duration (hours) <span className="text-red-500">*</span>
-                  </label>
-                  <input 
-                    type="number" 
-                    value={newTaskDuration}
-                    onChange={e => {
-                      const value = e.target.value;
-                      if (value === '' || (!isNaN(value) && parseFloat(value) >= 0)) {
-                        setNewTaskDuration(value);
-                        if (taskFormErrors.duration) {
-                          setTaskFormErrors(prev => ({ ...prev, duration: '' }));
-                        }
-                      }
-                    }}
-                    onBlur={e => {
-                      const value = parseFloat(e.target.value);
-                      if (!value || value < 0.5) {
-                        setNewTaskDuration('0.5');
-                      } else {
-                        setNewTaskDuration(value.toString());
-                      }
-                    }}
-                    className={`w-full h-10 px-3 border rounded-md text-sm focus:ring-2 outline-none bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 ${
-                      taskFormErrors.duration 
-                        ? 'border-red-500 focus:ring-red-400 focus:border-red-500' 
-                        : 'border-slate-200 dark:border-slate-600 focus:ring-slate-400 focus:border-slate-400'
-                    }`}
-                    min="0.5" 
-                    step="0.5"
-                    placeholder="1"
-                  />
-                  {taskFormErrors.duration && (
-                    <p className="mt-1 text-sm text-red-600 dark:text-red-400">{taskFormErrors.duration}</p>
-                  )}
-                    </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                    Priority <span className="text-red-500">*</span>
-                  </label>
-                  <select 
-                    value={newTaskPriority} 
-                    onChange={e => setNewTaskPriority(e.target.value)}
-                    className="w-full h-10 px-3 border border-slate-200 dark:border-slate-600 rounded-md text-sm focus:ring-2 focus:ring-slate-400 focus:border-slate-400 outline-none bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 cursor-pointer"
-                  >
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                  </select>
-                  </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                  Project <span className="text-red-500">*</span>
-                </label>
-                <select 
-                  value={newTaskProject} 
-                  onChange={e => {
-                    setNewTaskProject(Number(e.target.value));
-                    if (taskFormErrors.project) {
-                      setTaskFormErrors(prev => ({ ...prev, project: '' }));
-                    }
-                  }}
-                  className={`w-full h-10 px-3 border rounded-md text-sm focus:ring-2 outline-none bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 cursor-pointer ${
-                    taskFormErrors.project 
-                      ? 'border-red-500 focus:ring-red-400 focus:border-red-500' 
-                      : 'border-slate-200 dark:border-slate-600 focus:ring-slate-400 focus:border-slate-400'
-                  }`}
-                >
-                  {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-                {taskFormErrors.project && (
-                  <p className="mt-1 text-sm text-red-600 dark:text-red-400">{taskFormErrors.project}</p>
-                )}
-                        </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                  Due Date
-                </label>
-                <input
-                  type="date"
-                  value={newTaskDueDate}
-                  onChange={e => setNewTaskDueDate(e.target.value)}
-                  className="w-full h-10 px-3 border border-slate-200 dark:border-slate-600 rounded-md text-sm focus:ring-2 focus:ring-slate-400 focus:border-slate-400 outline-none bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
-                />
-                      </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                  Notes
-                </label>
-                <textarea
-                  value={newTaskNotes}
-                  onChange={e => setNewTaskNotes(e.target.value)}
-                  rows={4}
-                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-600 rounded-md text-sm focus:ring-2 focus:ring-slate-400 focus:border-slate-400 outline-none bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 resize-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
-                  placeholder="Add notes, description, or additional details..."
-                />
-                    </div>
-
-              {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  onClick={() => {
-                    setShowTaskForm(false);
-                    setNewTaskTitle('');
-                    setNewTaskDuration('1');
-                    setNewTaskPriority('medium');
-                    setNewTaskNotes('');
-                    setNewTaskDueDate('');
-                    setTaskFormErrors({});
-                  }}
-                  className="px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md text-sm font-medium hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={addTask}
-                  className="px-4 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-md text-sm font-medium hover:bg-slate-800 dark:hover:bg-slate-200 transition-colors"
-                >
-                  Create Task
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <TaskFormModal
+          show={showTaskForm}
+          onClose={() => setShowTaskForm(false)}
+          onSubmit={addTask}
+          projects={projects}
+          popularEmojis={popularEmojis}
+          newTaskTitle={newTaskTitle}
+          setNewTaskTitle={setNewTaskTitle}
+          newTaskDuration={newTaskDuration}
+          setNewTaskDuration={setNewTaskDuration}
+          newTaskPriority={newTaskPriority}
+          setNewTaskPriority={setNewTaskPriority}
+          newTaskProject={newTaskProject}
+          setNewTaskProject={setNewTaskProject}
+          newTaskNotes={newTaskNotes}
+          setNewTaskNotes={setNewTaskNotes}
+          newTaskDueDate={newTaskDueDate}
+          setNewTaskDueDate={setNewTaskDueDate}
+          newTaskSticker={newTaskSticker}
+          setNewTaskSticker={setNewTaskSticker}
+          showStickerPicker={showStickerPicker}
+          setShowStickerPicker={setShowStickerPicker}
+          taskFormErrors={taskFormErrors}
+          setTaskFormErrors={setTaskFormErrors}
+        />
       )}
 
       {/* Modal: Add/Edit Meeting */}
       {showMeetingForm && (
-        <div className="fixed inset-0 bg-slate-900/20 dark:bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-800 w-full max-w-sm rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 p-6 transform transition-all scale-100">
-            <div className="flex justify-between items-center mb-5">
-              <h3 className="text-lg font-bold text-slate-800 dark:text-white">{editingMeeting ? 'Edit Meeting' : 'Add Event'}</h3>
-              <button onClick={() => {
-                setShowMeetingForm(false);
-                setEditingMeeting(null);
-                setNewMeetingTitle('');
-                setNewMeetingStart('08:00');
-                setNewMeetingEnd('09:00');
-                setNewMeetingProject(1);
-                setNewMeetingRepeat(false);
-                setNewMeetingRepeatDays({
-                  monday: false,
-                  tuesday: false,
-                  wednesday: false,
-                  thursday: false,
-                  friday: false
-                });
-                setEditMeetingTitle('');
-                setEditMeetingStart('08:00');
-                setEditMeetingEnd('09:00');
-                setEditMeetingProject(1);
-              }} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 bg-slate-50 dark:bg-slate-700 p-1 rounded-full"><X size={18} /></button>
-            </div>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                  Title <span className="text-red-500">*</span>
-                </label>
-                <input 
-                  value={editingMeeting ? editMeetingTitle : newMeetingTitle}
-                  onChange={e => editingMeeting ? setEditMeetingTitle(e.target.value) : setNewMeetingTitle(e.target.value)}
-                  className="w-full h-10 px-3 border border-slate-200 dark:border-slate-600 rounded-md text-sm focus:ring-2 focus:ring-slate-400 focus:border-slate-400 outline-none bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500"
-                  placeholder="e.g. Client Sync"
-                  autoFocus
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                  Project
-                </label>
-                <select 
-                  value={editingMeeting ? editMeetingProject : newMeetingProject} 
-                  onChange={e => editingMeeting ? setEditMeetingProject(Number(e.target.value)) : setNewMeetingProject(Number(e.target.value))}
-                  className="w-full h-10 px-3 border border-slate-200 dark:border-slate-600 rounded-md text-sm focus:ring-2 focus:ring-slate-400 focus:border-slate-400 outline-none bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 cursor-pointer"
-                >
-                  {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                    Start <span className="text-red-500">*</span>
-                  </label>
-                  <input 
-                    type="time" 
-                    value={editingMeeting ? editMeetingStart : newMeetingStart} 
-                    onChange={e => editingMeeting ? setEditMeetingStart(e.target.value) : setNewMeetingStart(e.target.value)} 
-                    className="w-full h-10 px-3 border border-slate-200 dark:border-slate-600 rounded-md text-sm focus:ring-2 focus:ring-slate-400 focus:border-slate-400 outline-none bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" 
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                    End <span className="text-red-500">*</span>
-                  </label>
-                  <input 
-                    type="time" 
-                    value={editingMeeting ? editMeetingEnd : newMeetingEnd} 
-                    onChange={e => editingMeeting ? setEditMeetingEnd(e.target.value) : setNewMeetingEnd(e.target.value)} 
-                    className="w-full h-10 px-3 border border-slate-200 dark:border-slate-600 rounded-md text-sm focus:ring-2 focus:ring-slate-400 focus:border-slate-400 outline-none bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" 
-                  />
-                </div>
-              </div>
-
-              {!editingMeeting && (
-                <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <input
-                      type="checkbox"
-                      id="repeat-meeting"
-                      checked={newMeetingRepeat}
-                      onChange={e => setNewMeetingRepeat(e.target.checked)}
-                      className="w-4 h-4 text-slate-900 dark:text-slate-100 bg-slate-50 dark:bg-slate-700 border-slate-300 dark:border-slate-600 rounded focus:ring-2 focus:ring-slate-400 dark:focus:ring-slate-500"
-                    />
-                    <label htmlFor="repeat-meeting" className="text-sm font-medium text-slate-700 dark:text-slate-300 cursor-pointer">
-                      Repeat weekly
-                    </label>
-                  </div>
-                  
-                  {newMeetingRepeat && (
-                    <div className="pl-6 space-y-2">
-                      <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Select days:</p>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[
-                          { key: 'monday', label: 'Monday' },
-                          { key: 'tuesday', label: 'Tuesday' },
-                          { key: 'wednesday', label: 'Wednesday' },
-                          { key: 'thursday', label: 'Thursday' },
-                          { key: 'friday', label: 'Friday' }
-                        ].map(day => (
-                          <label key={day.key} className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={newMeetingRepeatDays[day.key]}
-                              onChange={e => setNewMeetingRepeatDays({
-                                ...newMeetingRepeatDays,
-                                [day.key]: e.target.checked
-                              })}
-                              className="w-4 h-4 text-slate-900 dark:text-slate-100 bg-slate-50 dark:bg-slate-700 border-slate-300 dark:border-slate-600 rounded focus:ring-2 focus:ring-slate-400 dark:focus:ring-slate-500"
-                            />
-                            <span className="text-sm text-slate-700 dark:text-slate-300">{day.label}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  onClick={() => {
-                    setShowMeetingForm(false);
-                    setEditingMeeting(null);
-                    setNewMeetingTitle('');
-                    setNewMeetingStart('08:00');
-                    setNewMeetingEnd('09:00');
-                    setNewMeetingProject(1);
-                    setNewMeetingRepeat(false);
-                    setNewMeetingRepeatDays({
-                      monday: false,
-                      tuesday: false,
-                      wednesday: false,
-                      thursday: false,
-                      friday: false
-                    });
-                    setEditMeetingTitle('');
-                    setEditMeetingStart('08:00');
-                    setEditMeetingEnd('09:00');
-                    setEditMeetingProject(1);
-                  }}
-                  className="px-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md text-sm font-medium hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={editingMeeting ? saveEditMeeting : addMeeting}
-                  className="px-4 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-md text-sm font-medium hover:bg-slate-800 dark:hover:bg-slate-200 transition-colors"
-                >
-                  {editingMeeting ? 'Update Meeting' : 'Save Meeting'}
-              </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Chat Bot Modal */}
-      {showChatBot && (
-        <div 
-          className="fixed inset-0 bg-slate-900/20 dark:bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-          onClick={(e) => {
-            // Close modal when clicking outside (on backdrop)
-            if (e.target === e.currentTarget) {
-              setShowChatBot(false);
-            }
+        <MeetingFormModal
+          show={showMeetingForm}
+          onClose={() => {
+            setShowMeetingForm(false);
+            setEditingMeeting(null);
           }}
-        >
-          <div className="bg-white dark:bg-slate-800 w-full max-w-2xl h-[600px] rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 flex flex-col">
-            {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-purple-600 rounded-full flex items-center justify-center">
-                  <Bot size={20} className="text-white" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-slate-800 dark:text-white">AI Calendar Assistant</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Tell me your scheduling preferences</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button 
-                  onClick={() => {
-                    if (window.confirm('Clear all chat messages?')) {
-                      setChatMessages([
-                        { role: 'assistant', content: 'Hi! I\'m your AI calendar assistant. Tell me about your scheduling preferences and I\'ll help organize your day better. For example, you can say "I prefer to do deep work in the morning" or "Schedule meetings after 2 PM".' }
-                      ]);
-                      showToast('Chat cleared');
-                    }
-                  }}
-                  className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 bg-slate-50 dark:bg-slate-700 p-1.5 rounded-lg transition-colors"
-                  title="Clear chat"
-                >
-                  <RotateCcw size={16} />
-                </button>
-                <button 
-                  onClick={() => {
-                    // Cancel any ongoing chat operations
-                    setChatLoading(false);
-                    setIsLoading(false);
-                    setShowChatBot(false);
-                  }}
-                  className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 bg-slate-50 dark:bg-slate-700 p-1 rounded-full"
-                  title="Close chat"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-            </div>
-
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {chatMessages.map((msg, idx) => (
-                <div
-                  key={idx}
-                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div
-                    className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                      msg.role === 'user'
-                        ? 'bg-indigo-600 text-white'
-                        : 'bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200'
-                    }`}
-                  >
-                    <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-                  </div>
-                </div>
-              ))}
-              {chatLoading && (
-                <div className="flex justify-start">
-                  <div className="bg-slate-100 dark:bg-slate-700 rounded-lg px-4 py-2">
-                    <p className="text-sm text-slate-500 dark:text-slate-400">Thinking...</p>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Input */}
-            <div className="p-4 border-t border-slate-200 dark:border-slate-700">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={e => setChatInput(e.target.value)}
-                  onKeyPress={e => e.key === 'Enter' && !e.shiftKey && sendChatMessage()}
-                  placeholder="Tell me your scheduling preferences..."
-                  className="flex-1 px-4 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-sm focus:bg-white dark:focus:bg-slate-700 focus:ring-2 focus:ring-purple-500 outline-none text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500"
-                  disabled={chatLoading}
-                />
-                <button
-                  onClick={sendChatMessage}
-                  disabled={chatLoading || !chatInput.trim()}
-                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center gap-2"
-                >
-                  <Send size={16} />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+          onSubmit={editingMeeting ? saveEditMeeting : addMeeting}
+          projects={projects}
+          editingMeeting={editingMeeting}
+          editingMeetingData={editingMeeting ? meetings.find(m => m.id === editingMeeting) : null}
+          newMeetingTitle={newMeetingTitle}
+          setNewMeetingTitle={setNewMeetingTitle}
+          newMeetingStart={newMeetingStart}
+          setNewMeetingStart={setNewMeetingStart}
+          newMeetingEnd={newMeetingEnd}
+          setNewMeetingEnd={setNewMeetingEnd}
+          newMeetingProject={newMeetingProject}
+          setNewMeetingProject={setNewMeetingProject}
+          newMeetingRepeat={newMeetingRepeat}
+          setNewMeetingRepeat={setNewMeetingRepeat}
+          newMeetingRepeatDays={newMeetingRepeatDays}
+          setNewMeetingRepeatDays={setNewMeetingRepeatDays}
+          editMeetingTitle={editMeetingTitle}
+          setEditMeetingTitle={setEditMeetingTitle}
+          editMeetingStart={editMeetingStart}
+          setEditMeetingStart={setEditMeetingStart}
+          editMeetingEnd={editMeetingEnd}
+          setEditMeetingEnd={setEditMeetingEnd}
+          editMeetingProject={editMeetingProject}
+          setEditMeetingProject={setEditMeetingProject}
+        />
       )}
+
+
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        workdayStart={workdayStart}
+        workdayEnd={workdayEnd}
+        onSave={handleSaveWorkingHours}
+      />
+
+      {/* Notification Center */}
+      <NotificationCenter
+        isOpen={showNotificationCenter}
+        onClose={() => setShowNotificationCenter(false)}
+        notifications={notifications}
+        onMarkAsRead={markNotificationAsRead}
+        onDismiss={dismissNotification}
+        onClearAll={clearAllNotifications}
+      />
 
     </div>
   );

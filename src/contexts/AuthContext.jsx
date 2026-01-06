@@ -1,9 +1,11 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { getStorageItem, setStorageItem, removeStorageItem } from '../utils/storage';
+import { localAuth } from '../utils/localAuth';
 
 const AuthContext = createContext(null);
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+const USE_LOCAL_AUTH = import.meta.env.VITE_USE_LOCAL_AUTH !== 'false'; // Default to true for local dev
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -41,6 +43,11 @@ export const AuthProvider = ({ children }) => {
 
   const verifyToken = async (tokenToVerify) => {
     try {
+      if (USE_LOCAL_AUTH) {
+        const result = localAuth.verifyToken(tokenToVerify);
+        return result.valid;
+      }
+      
       const response = await fetch(`${API_BASE}/auth/verify`, {
         method: 'POST',
         headers: {
@@ -50,85 +57,147 @@ export const AuthProvider = ({ children }) => {
       });
       return response.ok;
     } catch {
+      // If API fails, fall back to local auth
+      if (USE_LOCAL_AUTH) {
+        const result = localAuth.verifyToken(tokenToVerify);
+        return result.valid;
+      }
       return false;
     }
   };
 
   const signUp = async (email, password, name) => {
     try {
-      // Basic email validation
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        return { success: false, error: 'Please enter a valid email address' };
+      // Try local auth first if enabled, or fall back if API fails
+      if (USE_LOCAL_AUTH) {
+        try {
+          const result = await localAuth.signUp(email, password, name);
+          if (result.success) {
+            await setStorageItem('auth_token', result.token);
+            await setStorageItem('auth_user', result.user);
+            setToken(result.token);
+            setUser(result.user);
+            return { success: true };
+          }
+          return result;
+        } catch (error) {
+          console.error('Local auth error:', error);
+        }
       }
 
-      const response = await fetch(`${API_BASE}/auth/signup`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password, name }),
-      });
+      // Try API if local auth is disabled or failed
+      try {
+        const response = await fetch(`${API_BASE}/auth/signup`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ email, password, name }),
+        });
 
-      // Handle network errors
-      if (!response.ok) {
+        if (response.ok) {
+          const data = await response.json();
+          await setStorageItem('auth_token', data.token);
+          await setStorageItem('auth_user', data.user);
+          setToken(data.token);
+          setUser(data.user);
+          return { success: true };
+        }
+
         let errorMessage = 'Sign up failed. Please try again.';
         try {
           const data = await response.json();
           errorMessage = data.error || errorMessage;
         } catch {
-          // If response is not JSON, use status text
           errorMessage = response.statusText || errorMessage;
         }
         return { success: false, error: errorMessage };
+      } catch (apiError) {
+        // If API fails and local auth is available, use it
+        if (USE_LOCAL_AUTH) {
+          const result = await localAuth.signUp(email, password, name);
+          if (result.success) {
+            await setStorageItem('auth_token', result.token);
+            await setStorageItem('auth_user', result.user);
+            setToken(result.token);
+            setUser(result.user);
+            return { success: true };
+          }
+          return result;
+        }
+        
+        // Otherwise return API error
+        if (apiError.message.includes('Failed to fetch') || apiError.message.includes('NetworkError')) {
+          return { 
+            success: false, 
+            error: 'Unable to connect to server. Using local storage for development.' 
+          };
+        }
+        return { success: false, error: apiError.message || 'An unexpected error occurred' };
       }
-
-      const data = await response.json();
-
-      // Store token and user
-      await setStorageItem('auth_token', data.token);
-      await setStorageItem('auth_user', data.user);
-      setToken(data.token);
-      setUser(data.user);
-
-      return { success: true };
     } catch (error) {
-      // Handle network errors or CORS issues
-      if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-        return { 
-          success: false, 
-          error: 'Unable to connect to server. Please check your internet connection or ensure the API is running.' 
-        };
-      }
       return { success: false, error: error.message || 'An unexpected error occurred' };
     }
   };
 
   const signIn = async (email, password) => {
     try {
-      const response = await fetch(`${API_BASE}/auth/signin`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Sign in failed');
+      // Try local auth first if enabled, or fall back if API fails
+      if (USE_LOCAL_AUTH) {
+        try {
+          const result = await localAuth.signIn(email, password);
+          if (result.success) {
+            await setStorageItem('auth_token', result.token);
+            await setStorageItem('auth_user', result.user);
+            setToken(result.token);
+            setUser(result.user);
+            return { success: true };
+          }
+          return result;
+        } catch (error) {
+          console.error('Local auth error:', error);
+        }
       }
 
-      // Store token and user
-      await setStorageItem('auth_token', data.token);
-      await setStorageItem('auth_user', data.user);
-      setToken(data.token);
-      setUser(data.user);
+      // Try API if local auth is disabled or failed
+      try {
+        const response = await fetch(`${API_BASE}/auth/signin`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ email, password }),
+        });
 
-      return { success: true };
+        if (response.ok) {
+          const data = await response.json();
+          await setStorageItem('auth_token', data.token);
+          await setStorageItem('auth_user', data.user);
+          setToken(data.token);
+          setUser(data.user);
+          return { success: true };
+        }
+
+        const data = await response.json();
+        throw new Error(data.error || 'Sign in failed');
+      } catch (apiError) {
+        // If API fails and local auth is available, use it
+        if (USE_LOCAL_AUTH) {
+          const result = await localAuth.signIn(email, password);
+          if (result.success) {
+            await setStorageItem('auth_token', result.token);
+            await setStorageItem('auth_user', result.user);
+            setToken(result.token);
+            setUser(result.user);
+            return { success: true };
+          }
+          return result;
+        }
+        
+        return { success: false, error: apiError.message || 'Sign in failed' };
+      }
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error.message || 'Sign in failed' };
     }
   };
 
