@@ -41,3 +41,6 @@ lerna-debug.log*
 
 # OS
 Thumbs.db
+
+# Cloudflare Wrangler (local development files)
+.wrangler/
