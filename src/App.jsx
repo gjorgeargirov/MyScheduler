@@ -77,6 +77,23 @@ const AIKanbanScheduler = () => {
   const userId = isAuthenticated && user ? `user_${user.id}` : browserUserId;
   const getUserKey = useCallback((key) => `${userId}_${key}`, [userId]);
   
+  // Log app configuration on mount
+  useEffect(() => {
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('📊 APP CONFIGURATION');
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('👤 User Status:');
+    console.log('   Authenticated:', isAuthenticated);
+    console.log('   User:', user ? `${user.name} (${user.email})` : 'Not logged in');
+    console.log('   User ID:', userId);
+    console.log('   Browser User ID:', browserUserId);
+    console.log('');
+    console.log('💾 Storage Configuration:');
+    console.log('   Storage key prefix:', userId);
+    console.log('   Using:', isAuthenticated ? '🟢 Authenticated user storage' : '🔴 Browser storage');
+    console.log('═══════════════════════════════════════════════════════════');
+  }, [isAuthenticated, user, userId, browserUserId]);
+  
   // --- State with localStorage persistence ---
   // Use authenticated user ID if logged in, otherwise browser ID
   // Note: When user signs in, data will be associated with their account ID
