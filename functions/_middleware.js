@@ -7,16 +7,25 @@ export async function onRequest(context) {
   const url = new URL(request.url);
   const pathname = url.pathname;
 
+  // Log middleware execution
+  console.log('[MIDDLEWARE] Processing request:', request.method, pathname);
+
   // Get the response
   const response = await next();
 
+  // Check current Content-Type
+  const currentContentType = response.headers.get('Content-Type');
+  console.log('[MIDDLEWARE] Current Content-Type:', currentContentType);
+
   // Only modify responses for JavaScript and CSS files
   if (pathname.endsWith('.js') || pathname.endsWith('.mjs')) {
+    console.log('[MIDDLEWARE] Setting JavaScript MIME type for:', pathname);
     // Clone headers to avoid modifying the original
     const headers = new Headers(response.headers);
     headers.set('Content-Type', 'application/javascript; charset=utf-8');
     headers.set('X-Content-Type-Options', 'nosniff');
     
+    console.log('[MIDDLEWARE] New Content-Type:', headers.get('Content-Type'));
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
@@ -25,6 +34,7 @@ export async function onRequest(context) {
   }
 
   if (pathname.endsWith('.css')) {
+    console.log('[MIDDLEWARE] Setting CSS MIME type for:', pathname);
     const headers = new Headers(response.headers);
     headers.set('Content-Type', 'text/css; charset=utf-8');
     
