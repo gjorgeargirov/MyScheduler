@@ -87,12 +87,23 @@ export const AuthProvider = ({ children }) => {
   };
 
   const signUp = async (email, password, name) => {
-    console.log('[CLIENT] signUp called with USE_LOCAL_AUTH:', USE_LOCAL_AUTH);
-    console.log('[CLIENT] API_BASE:', API_BASE);
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('📝 SIGNUP REQUEST');
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('👤 User Info:');
+    console.log('   Email:', email);
+    console.log('   Name:', name);
+    console.log('');
+    console.log('⚙️  Configuration:');
+    console.log('   USE_LOCAL_AUTH:', USE_LOCAL_AUTH);
+    console.log('   API_BASE:', API_BASE);
+    console.log('   Will use:', USE_LOCAL_AUTH ? '🔴 LOCAL STORAGE' : '🟢 API/DATABASE');
+    console.log('═══════════════════════════════════════════════════════════');
     try {
       // Try local auth first if enabled, or fall back if API fails
       if (USE_LOCAL_AUTH) {
-        console.log('[CLIENT] Using LOCAL auth (USE_LOCAL_AUTH is true)');
+        console.log('⚠️  [CLIENT] Using LOCAL auth (USE_LOCAL_AUTH is true)');
+        console.log('⚠️  [CLIENT] User will be saved to browser storage, NOT database!');
         try {
           const result = await localAuth.signUp(email, password, name);
           if (result.success) {
@@ -109,9 +120,12 @@ export const AuthProvider = ({ children }) => {
       }
 
       // Try API if local auth is disabled or failed
-      console.log('[CLIENT] Attempting API signup to:', `${API_BASE}/auth/signup`);
+      const signupUrl = `${API_BASE}/auth/signup`;
+      console.log('🌐 [CLIENT] Attempting API signup');
+      console.log('   URL:', signupUrl);
+      console.log('   Full URL:', `${window.location.origin}${signupUrl}`);
       try {
-        const response = await fetch(`${API_BASE}/auth/signup`, {
+        const response = await fetch(signupUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -119,10 +133,15 @@ export const AuthProvider = ({ children }) => {
           body: JSON.stringify({ email, password, name }),
         });
 
-        console.log('[CLIENT] API response status:', response.status);
+        console.log('📡 [CLIENT] API Response:');
+        console.log('   Status:', response.status, response.statusText);
+        console.log('   OK:', response.ok);
         if (response.ok) {
           const data = await response.json();
-          console.log('[CLIENT] API signup successful, user ID:', data.user?.id);
+          console.log('✅ [CLIENT] API signup SUCCESSFUL!');
+          console.log('   User ID:', data.user?.id);
+          console.log('   User Email:', data.user?.email);
+          console.log('   Token received:', data.token ? 'Yes' : 'No');
           await setStorageItem('auth_token', data.token);
           await setStorageItem('auth_user', data.user);
           setToken(data.token);
@@ -130,7 +149,10 @@ export const AuthProvider = ({ children }) => {
           return { success: true };
         }
         
-        console.error('[CLIENT] API signup failed, status:', response.status);
+        console.error('❌ [CLIENT] API signup FAILED');
+        console.error('   Status:', response.status, response.statusText);
+        const errorText = await response.text();
+        console.error('   Response:', errorText);
 
         let errorMessage = 'Sign up failed. Please try again.';
         try {
