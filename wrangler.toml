@@ -7,8 +7,8 @@ directory = "./dist"
 # D1 Database for user accounts
 [[d1_databases]]
 binding = "DB"
-database_name = "my-scheduler-db"
-database_id = "your-database-id-here"  # Replace with your actual D1 database ID
+database_name = "focusboard-db"
+database_id = "2ce24068-cc3a-4afc-8e6d-2e43936ff608"
 
 [vars]
-JWT_SECRET = "your-secret-key-here"  # Replace with a strong random secret
+JWT_SECRET = "63d8fe4547bb00293c6edb3dbea651e1207969e25dc4d2141e0db02105ef56e1"
