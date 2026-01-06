@@ -10,6 +10,12 @@ export async function onRequest(context) {
   // Log middleware execution
   console.log('[MIDDLEWARE] Processing request:', request.method, pathname);
 
+  // Skip middleware for API routes - let functions handle them
+  if (pathname.startsWith('/api/')) {
+    console.log('[MIDDLEWARE] Skipping middleware for API route:', pathname);
+    return next();
+  }
+
   // Get the response
   const response = await next();
 

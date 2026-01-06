@@ -5,7 +5,14 @@ import { localAuth } from '../utils/localAuth';
 const AuthContext = createContext(null);
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
-const USE_LOCAL_AUTH = import.meta.env.VITE_USE_LOCAL_AUTH !== 'false'; // Default to true for local dev
+// Determine auth mode:
+// - If VITE_USE_LOCAL_AUTH is explicitly set to 'true', use local auth
+// - If VITE_USE_LOCAL_AUTH is explicitly set to 'false', use API auth
+// - If not set: in production (PROD=true), default to API auth; in dev, default to local auth
+const explicitLocalAuth = import.meta.env.VITE_USE_LOCAL_AUTH === 'true';
+const explicitApiAuth = import.meta.env.VITE_USE_LOCAL_AUTH === 'false';
+const isProduction = import.meta.env.PROD === true;
+const USE_LOCAL_AUTH = explicitLocalAuth || (!explicitApiAuth && !isProduction);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);

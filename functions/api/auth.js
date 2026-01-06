@@ -15,19 +15,40 @@
 export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
-  // Handle both /api/auth/... and /api/auth/.../ paths
-  let path = url.pathname.replace('/api/auth', '');
-  // Remove trailing slash
-  if (path.endsWith('/') && path.length > 1) {
-    path = path.slice(0, -1);
+  
+  // Log full request details for debugging
+  console.log('[AUTH] ========================================');
+  console.log('[AUTH] FUNCTION CALLED!');
+  console.log('[AUTH] Full URL:', request.url);
+  console.log('[AUTH] Pathname:', url.pathname);
+  console.log('[AUTH] Method:', request.method);
+  console.log('[AUTH] ========================================');
+  
+  // In Cloudflare Pages, functions/api/auth.js handles /api/auth/* routes
+  // The pathname in the context should be the full pathname
+  let path = url.pathname;
+  
+  // Remove /api/auth prefix if present
+  if (path.startsWith('/api/auth')) {
+    path = path.replace('/api/auth', '');
   }
-  // Ensure path starts with /
-  if (!path.startsWith('/')) {
-    path = '/' + path;
+  
+  // Handle empty path (if request is to /api/auth)
+  if (path === '' || path === '/') {
+    path = '/';
+  } else {
+    // Remove trailing slash (except for root)
+    if (path.endsWith('/') && path.length > 1) {
+      path = path.slice(0, -1);
+    }
+    // Ensure path starts with /
+    if (!path.startsWith('/')) {
+      path = '/' + path;
+    }
   }
 
   // Log database binding status
-  console.log('[AUTH] Request:', request.method, path);
+  console.log('[AUTH] Extracted path:', path);
   console.log('[AUTH] DB binding exists:', !!env.DB);
   console.log('[AUTH] JWT_SECRET exists:', !!env.JWT_SECRET);
   
@@ -47,6 +68,20 @@ export async function onRequest(context) {
 
   if (request.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
+  }
+
+  // Add a test endpoint to verify function is working
+  if (path === '/test' || path === '/') {
+    return new Response(
+      JSON.stringify({ 
+        message: 'Auth function is working!',
+        pathname: url.pathname,
+        extractedPath: path,
+        method: request.method,
+        timestamp: new Date().toISOString()
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
   }
 
   try {
@@ -223,8 +258,29 @@ export async function onRequest(context) {
       }
     }
 
+    // Log what we're returning - this should help us debug
+    console.log('[AUTH] ========================================');
+    console.log('[AUTH] No handler found!');
+    console.log('[AUTH] Path:', path);
+    console.log('[AUTH] Method:', request.method);
+    console.log('[AUTH] Full pathname:', url.pathname);
+    console.log('[AUTH] Available routes: /signup (POST), /signin (POST), /verify (POST), /signout (GET/POST)');
+    console.log('[AUTH] ========================================');
+    
+    // Return detailed error to help debug
     return new Response(
-      JSON.stringify({ error: 'Not found', path: path, method: request.method }),
+      JSON.stringify({ 
+        error: 'Not found', 
+        path: path, 
+        method: request.method,
+        pathname: url.pathname,
+        availableRoutes: ['/signup (POST)', '/signin (POST)', '/verify (POST)', '/signout (GET/POST)'],
+        debug: {
+          extractedPath: path,
+          fullPathname: url.pathname,
+          requestMethod: request.method
+        }
+      }),
       { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
