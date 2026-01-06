@@ -8,7 +8,6 @@ const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [token, setToken] = useState(null);
 
   // Debug logging for environment variables and configuration (on mount)
   useEffect(() => {
@@ -33,23 +32,20 @@ export const AuthProvider = ({ children }) => {
     console.log('═══════════════════════════════════════════════════════════');
   }, []);
 
-  // Load user session on mount
+  // Load user session on mount (check cookie)
   useEffect(() => {
     const loadSession = async () => {
       try {
-        const storedToken = await getStorageItem('auth_token');
-        const storedUser = await getStorageItem('auth_user');
+        // Verify session via cookie (cookies are sent automatically)
+        const response = await fetch(`${API_BASE}/auth/verify`, {
+          method: 'GET',
+          credentials: 'include', // Important: include cookies
+        });
         
-        if (storedToken && storedUser) {
-          // Verify token is still valid
-          const isValid = await verifyToken(storedToken);
-          if (isValid) {
-            setToken(storedToken);
-            setUser(storedUser);
-          } else {
-            // Token expired, clear storage
-            await removeStorageItem('auth_token');
-            await removeStorageItem('auth_user');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.valid && data.user) {
+            setUser({ id: data.user.userId, email: data.user.email, name: data.user.name });
           }
         }
       } catch (error) {
@@ -61,21 +57,6 @@ export const AuthProvider = ({ children }) => {
 
     loadSession();
   }, []);
-
-  const verifyToken = async (tokenToVerify) => {
-    try {
-      const response = await fetch(`${API_BASE}/auth/verify`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ token: tokenToVerify }),
-      });
-      return response.ok;
-    } catch {
-      return false;
-    }
-  };
 
   const signUp = async (email, password, name) => {
     console.log('═══════════════════════════════════════════════════════════');
@@ -103,6 +84,7 @@ export const AuthProvider = ({ children }) => {
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include', // Include cookies
         body: JSON.stringify({ email, password, name }),
       });
 
@@ -115,10 +97,7 @@ export const AuthProvider = ({ children }) => {
         console.log('✅ [CLIENT] API signup SUCCESSFUL!');
         console.log('   User ID:', data.user?.id);
         console.log('   User Email:', data.user?.email);
-        console.log('   Token received:', data.token ? 'Yes' : 'No');
-        await setStorageItem('auth_token', data.token);
-        await setStorageItem('auth_user', data.user);
-        setToken(data.token);
+        console.log('   Session cookie set automatically');
         setUser(data.user);
         return { success: true };
       }
@@ -152,14 +131,13 @@ export const AuthProvider = ({ children }) => {
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include', // Include cookies
         body: JSON.stringify({ email, password }),
       });
 
       if (response.ok) {
         const data = await response.json();
-        await setStorageItem('auth_token', data.token);
-        await setStorageItem('auth_user', data.user);
-        setToken(data.token);
+        // Session cookie is set automatically by the server
         setUser(data.user);
         return { success: true };
       }
@@ -176,28 +154,19 @@ export const AuthProvider = ({ children }) => {
 
   const signOut = async () => {
     try {
-      if (token) {
-        await fetch(`${API_BASE}/auth/signout`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-        });
-      }
+      await fetch(`${API_BASE}/auth/signout`, {
+        method: 'POST',
+        credentials: 'include', // Include cookies
+      });
     } catch (error) {
       console.error('Sign out error:', error);
     } finally {
-      await removeStorageItem('auth_token');
-      await removeStorageItem('auth_user');
-      setToken(null);
       setUser(null);
     }
   };
 
   const value = {
     user,
-    token,
     loading,
     signUp,
     signIn,

@@ -4,12 +4,11 @@
  * This handles:
  * - User signup
  * - User signin
- * - Token verification
+ * - Session verification (cookie-based)
  * - User signout
  * 
  * Requires:
  * - Cloudflare D1 database
- * - JWT_SECRET environment variable
  */
 
 export async function onRequest(context) {
@@ -50,20 +49,17 @@ export async function onRequest(context) {
   // Log database binding status
   console.log('[AUTH] Extracted path:', path);
   console.log('[AUTH] DB binding exists:', !!env.DB);
-  console.log('[AUTH] JWT_SECRET exists:', !!env.JWT_SECRET);
   
   if (!env.DB) {
     console.error('[AUTH] ERROR: env.DB is not defined! D1 binding may not be configured.');
   }
-  if (!env.JWT_SECRET) {
-    console.error('[AUTH] ERROR: env.JWT_SECRET is not defined! Check Functions environment variables.');
-  }
 
-  // CORS headers
+  // CORS headers (allow credentials for cookies)
   const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': request.headers.get('Origin') || '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Credentials': 'true',
   };
 
   if (request.method === 'OPTIONS') {
@@ -144,17 +140,27 @@ export async function onRequest(context) {
       const userId = result.meta.last_row_id;
       console.log('[AUTH] Generated user ID:', userId);
 
-      // Generate JWT token
-      console.log('[AUTH] Generating JWT token...');
-      const token = await generateToken(userId, email, env.JWT_SECRET);
+      // Create session
+      console.log('[AUTH] Creating session...');
+      const sessionId = crypto.randomUUID();
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
+      
+      await env.DB.prepare(
+        'INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)'
+      ).bind(sessionId, userId, expiresAt, new Date().toISOString()).run();
+      
       console.log('[AUTH] Signup successful for:', email);
+
+      // Set session cookie
+      const headers = new Headers(corsHeaders);
+      headers.set('Content-Type', 'application/json');
+      headers.set('Set-Cookie', `session=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${7 * 24 * 60 * 60}`);
 
       return new Response(
         JSON.stringify({
-          token,
           user: { id: userId, email, name },
         }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { headers }
       );
     }
 
@@ -204,25 +210,36 @@ export async function onRequest(context) {
         );
       }
 
-      // Generate JWT token
-      console.log('[AUTH] Password verified, generating token...');
-      const token = await generateToken(user.id, user.email, env.JWT_SECRET);
+      // Create session
+      console.log('[AUTH] Password verified, creating session...');
+      const sessionId = crypto.randomUUID();
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
+      
+      await env.DB.prepare(
+        'INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)'
+      ).bind(sessionId, user.id, expiresAt, new Date().toISOString()).run();
+      
       console.log('[AUTH] Signin successful for:', email);
+
+      // Set session cookie
+      const headers = new Headers(corsHeaders);
+      headers.set('Content-Type', 'application/json');
+      headers.set('Set-Cookie', `session=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${7 * 24 * 60 * 60}`);
 
       return new Response(
         JSON.stringify({
-          token,
           user: { id: user.id, email: user.email, name: user.name },
         }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { headers }
       );
     }
 
-    // Verify token
-    if (path === '/verify' && request.method === 'POST') {
-      const { token } = await request.json();
+    // Verify session
+    if (path === '/verify' && (request.method === 'GET' || request.method === 'POST')) {
+      const cookieHeader = request.headers.get('Cookie');
+      const sessionId = cookieHeader?.split(';').find(c => c.trim().startsWith('session='))?.split('=')[1];
 
-      if (!token) {
+      if (!sessionId) {
         return new Response(
           JSON.stringify({ valid: false }),
           { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -230,12 +247,26 @@ export async function onRequest(context) {
       }
 
       try {
-        const payload = await verifyToken(token, env.JWT_SECRET);
+        const session = await env.DB.prepare(
+          'SELECT s.user_id, s.expires_at, u.email, u.name FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.id = ? AND s.expires_at > ?'
+        ).bind(sessionId, new Date().toISOString()).first();
+
+        if (session) {
+          return new Response(
+            JSON.stringify({ 
+              valid: true, 
+              user: { userId: session.user_id, email: session.email, name: session.name } 
+            }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        
         return new Response(
-          JSON.stringify({ valid: true, user: payload }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          JSON.stringify({ valid: false }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
-      } catch {
+      } catch (error) {
+        console.error('[AUTH] Session verification error:', error);
         return new Response(
           JSON.stringify({ valid: false }),
           { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -243,12 +274,23 @@ export async function onRequest(context) {
       }
     }
 
-    // Sign out (just returns success, client clears token)
+    // Sign out (delete session)
     if (path === '/signout' || path === '/signout/') {
       if (request.method === 'POST' || request.method === 'GET') {
+        const cookieHeader = request.headers.get('Cookie');
+        const sessionId = cookieHeader?.split(';').find(c => c.trim().startsWith('session='))?.split('=')[1];
+        
+        if (sessionId) {
+          await env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(sessionId).run();
+        }
+        
+        const headers = new Headers(corsHeaders);
+        headers.set('Content-Type', 'application/json');
+        headers.set('Set-Cookie', 'session=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0');
+        
         return new Response(
           JSON.stringify({ success: true }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          { headers }
         );
       } else {
         return new Response(
@@ -307,74 +349,3 @@ async function verifyPassword(password, hash) {
   return hashed === hash;
 }
 
-// Simple JWT implementation (use proper library in production)
-async function generateToken(userId, email, secret) {
-  const header = { alg: 'HS256', typ: 'JWT' };
-  const payload = {
-    userId,
-    email,
-    exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7, // 7 days
-  };
-
-  const base64Url = (str) => {
-    return btoa(str)
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=/g, '');
-  };
-
-  const encodedHeader = base64Url(JSON.stringify(header));
-  const encodedPayload = base64Url(JSON.stringify(payload));
-
-  const signature = await crypto.subtle.sign(
-    'HMAC',
-    await crypto.subtle.importKey(
-      'raw',
-      new TextEncoder().encode(secret),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign']
-    ),
-    new TextEncoder().encode(`${encodedHeader}.${encodedPayload}`)
-  );
-
-  const signatureArray = Array.from(new Uint8Array(signature));
-  const encodedSignature = base64Url(String.fromCharCode(...signatureArray));
-
-  return `${encodedHeader}.${encodedPayload}.${encodedSignature}`;
-}
-
-async function verifyToken(token, secret) {
-  const parts = token.split('.');
-  if (parts.length !== 3) throw new Error('Invalid token');
-
-  const [encodedHeader, encodedPayload, encodedSignature] = parts;
-
-  const signature = await crypto.subtle.sign(
-    'HMAC',
-    await crypto.subtle.importKey(
-      'raw',
-      new TextEncoder().encode(secret),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign']
-    ),
-    new TextEncoder().encode(`${encodedHeader}.${encodedPayload}`)
-  );
-
-  const signatureArray = Array.from(new Uint8Array(signature));
-  const expectedSignature = btoa(String.fromCharCode(...signatureArray))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '');
-
-  if (encodedSignature !== expectedSignature) throw new Error('Invalid signature');
-
-  const payload = JSON.parse(atob(encodedPayload.replace(/-/g, '+').replace(/_/g, '/')));
-  
-  if (payload.exp < Math.floor(Date.now() / 1000)) {
-    throw new Error('Token expired');
-  }
-
-  return payload;
-}

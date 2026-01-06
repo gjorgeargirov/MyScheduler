@@ -9,5 +9,4 @@ binding = "DB"
 database_name = "focusboard-db"
 database_id = "2ce24068-cc3a-4afc-8e6d-2e43936ff608"
 
-[vars]
-JWT_SECRET = "63d8fe4547bb00293c6edb3dbea651e1207969e25dc4d2141e0db02105ef56e1"
+# No environment variables needed - using session-based auth with cookies

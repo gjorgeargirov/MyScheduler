@@ -9,7 +9,7 @@
  * 
  * Requires:
  * - Cloudflare D1 database
- * - JWT authentication (user_id from token)
+ * - Session-based authentication (cookie)
  */
 
 export async function onRequest(context) {
@@ -17,34 +17,47 @@ export async function onRequest(context) {
   const url = new URL(request.url);
   const path = url.pathname.replace('/api/data', '');
 
-  // CORS headers
+  // CORS headers (allow credentials for cookies)
   const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': request.headers.get('Origin') || '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Credentials': 'true',
   };
 
   if (request.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // Get user ID from JWT token
-  const authHeader = request.headers.get('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  // Get user ID from session cookie
+  const cookieHeader = request.headers.get('Cookie');
+  const sessionId = cookieHeader?.split(';').find(c => c.trim().startsWith('session='))?.split('=')[1];
+
+  if (!sessionId) {
     return new Response(
       JSON.stringify({ error: 'Unauthorized' }),
       { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 
-  const token = authHeader.replace('Bearer ', '');
   let userId;
   try {
-    const payload = await verifyToken(token, env.JWT_SECRET);
-    userId = payload.userId;
-  } catch {
+    const session = await env.DB.prepare(
+      'SELECT user_id FROM sessions WHERE id = ? AND expires_at > ?'
+    ).bind(sessionId, new Date().toISOString()).first();
+
+    if (!session) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid or expired session' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    userId = session.user_id;
+  } catch (error) {
+    console.error('[DATA] Session verification error:', error);
     return new Response(
-      JSON.stringify({ error: 'Invalid token' }),
+      JSON.stringify({ error: 'Invalid session' }),
       { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
@@ -530,38 +543,3 @@ export async function onRequest(context) {
   }
 }
 
-// JWT verification (same as auth.js)
-async function verifyToken(token, secret) {
-  const parts = token.split('.');
-  if (parts.length !== 3) throw new Error('Invalid token');
-
-  const [encodedHeader, encodedPayload, encodedSignature] = parts;
-
-  const signature = await crypto.subtle.sign(
-    'HMAC',
-    await crypto.subtle.importKey(
-      'raw',
-      new TextEncoder().encode(secret),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign']
-    ),
-    new TextEncoder().encode(`${encodedHeader}.${encodedPayload}`)
-  );
-
-  const signatureArray = Array.from(new Uint8Array(signature));
-  const expectedSignature = btoa(String.fromCharCode(...signatureArray))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '');
-
-  if (encodedSignature !== expectedSignature) throw new Error('Invalid signature');
-
-  const payload = JSON.parse(atob(encodedPayload.replace(/-/g, '+').replace(/_/g, '/')));
-  
-  if (payload.exp < Math.floor(Date.now() / 1000)) {
-    throw new Error('Token expired');
-  }
-
-  return payload;
-}
