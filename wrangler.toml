@@ -1,7 +1,10 @@
-name = "myschedulernew"
+name = "myscheduler"
 compatibility_date = "2026-01-03"
 
 pages_build_output_dir = "./dist"
+
+# This is a Pages project, not a Worker
+# Pages will automatically deploy after build - no deploy command needed
 
 # D1 Database for user accounts
 [[d1_databases]]
