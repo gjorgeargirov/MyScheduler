@@ -79,6 +79,8 @@ const AIKanbanScheduler = () => {
   
   // --- State with localStorage persistence ---
   // Use authenticated user ID if logged in, otherwise browser ID
+  // Note: When user signs in, data will be associated with their account ID
+  // When user signs out, data will be associated with browser ID (local only)
   const [projects, setProjects] = useLocalStorage('focusboard_projects', [
     { id: 1, name: 'Website Redesign', color: 'bg-blue-500' },
     { id: 2, name: 'Mobile App', color: 'bg-indigo-500' },
@@ -99,6 +101,38 @@ const AIKanbanScheduler = () => {
   ], userId);
 
   const [schedule, setSchedule] = useLocalStorage('focusboard_schedule', [], userId);
+  
+  // Migrate data when user logs in (from browser ID to user ID)
+  useEffect(() => {
+    if (isAuthenticated && user && userId !== browserUserId) {
+      // User just logged in - check if there's browser-specific data to migrate
+      const migrateData = async () => {
+        try {
+          const browserProjects = await getStorageItem(`${browserUserId}_focusboard_projects`);
+          const browserTasks = await getStorageItem(`${browserUserId}_focusboard_tasks`);
+          const browserMeetings = await getStorageItem(`${browserUserId}_focusboard_meetings`);
+          const browserSchedule = await getStorageItem(`${browserUserId}_focusboard_schedule`);
+          
+          // Only migrate if account has no data yet
+          const accountProjects = await getStorageItem(`${userId}_focusboard_projects`);
+          if (!accountProjects && browserProjects) {
+            // Migrate browser data to account
+            await setStorageItem(`${userId}_focusboard_projects`, browserProjects);
+            if (browserTasks) await setStorageItem(`${userId}_focusboard_tasks`, browserTasks);
+            if (browserMeetings) await setStorageItem(`${userId}_focusboard_meetings`, browserMeetings);
+            if (browserSchedule) await setStorageItem(`${userId}_focusboard_schedule`, browserSchedule);
+            
+            // Reload state
+            window.location.reload();
+          }
+        } catch (error) {
+          console.error('Error migrating data:', error);
+        }
+      };
+      
+      migrateData();
+    }
+  }, [isAuthenticated, user, userId, browserUserId]);
   
   // Migrate existing schedule items to have unique IDs and dates (run once on mount)
   useEffect(() => {

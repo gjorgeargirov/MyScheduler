@@ -65,22 +65,45 @@ function parseToken(token) {
   }
 }
 
-// Get all users from localStorage
-function getUsers() {
+// Get all users from storage (IndexedDB with localStorage fallback)
+async function getUsers() {
   try {
+    // Try IndexedDB first for better storage
+    const { getStorageItem } = await import('./storage');
+    const users = await getStorageItem(USERS_STORAGE_KEY);
+    if (users) return users;
+    
+    // Fallback to localStorage
     const usersJson = localStorage.getItem(USERS_STORAGE_KEY);
     return usersJson ? JSON.parse(usersJson) : [];
   } catch {
-    return [];
+    // Final fallback
+    try {
+      const usersJson = localStorage.getItem(USERS_STORAGE_KEY);
+      return usersJson ? JSON.parse(usersJson) : [];
+    } catch {
+      return [];
+    }
   }
 }
 
-// Save users to localStorage
-function saveUsers(users) {
+// Save users to storage (IndexedDB with localStorage fallback)
+async function saveUsers(users) {
   try {
+    // Try IndexedDB first
+    const { setStorageItem } = await import('./storage');
+    await setStorageItem(USERS_STORAGE_KEY, users);
+    
+    // Also save to localStorage as backup
     localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
   } catch (error) {
     console.error('Error saving users:', error);
+    // Fallback to localStorage only
+    try {
+      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
+    } catch (e) {
+      console.error('Error saving users to localStorage:', e);
+    }
   }
 }
 
@@ -94,14 +117,14 @@ export const localAuth = {
     }
 
     // Check if user exists
-    const users = getUsers();
+    const users = await getUsers();
     const existing = users.find(u => u.email === email);
     
     if (existing) {
       return { success: false, error: 'Email already registered' };
     }
 
-    // Create new user
+    // Create new user with consistent ID format
     const hashedPassword = await hashPassword(password);
     const userId = Date.now(); // Simple ID generation
     const newUser = {
@@ -113,7 +136,7 @@ export const localAuth = {
     };
 
     users.push(newUser);
-    saveUsers(users);
+    await saveUsers(users);
 
     // Generate token
     const token = generateToken(userId, email);
@@ -127,7 +150,7 @@ export const localAuth = {
   },
 
   async signIn(email, password) {
-    const users = getUsers();
+    const users = await getUsers();
     const user = users.find(u => u.email === email);
 
     if (!user) {
