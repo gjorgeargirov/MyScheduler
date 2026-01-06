@@ -11,7 +11,11 @@ export default defineConfig({
     minify: 'esbuild',
     rollupOptions: {
       output: {
-        manualChunks: undefined
+        manualChunks: undefined,
+        // Ensure .js extension (not .jsx)
+        entryFileNames: 'assets/[name]-[hash].js',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash].[ext]'
       }
     }
   },
@@ -19,4 +23,5 @@ export default defineConfig({
   envPrefix: 'VITE_',
   // Cloudflare Pages handles SPA routing automatically
   // No need for _redirects file
+  // Ensure proper MIME types are set via _headers file in public/
 })

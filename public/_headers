@@ -1,6 +1,12 @@
 /*
   Content-Type: text/html; charset=utf-8
 
+/assets/*.js
+  Content-Type: application/javascript; charset=utf-8
+
+/assets/*.mjs
+  Content-Type: application/javascript; charset=utf-8
+
 /*.js
   Content-Type: application/javascript; charset=utf-8
 
