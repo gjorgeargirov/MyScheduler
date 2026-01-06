@@ -7,30 +7,36 @@ const AuthContext = createContext(null);
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 const USE_LOCAL_AUTH = import.meta.env.VITE_USE_LOCAL_AUTH !== 'false'; // Default to true for local dev
 
-// Debug logging for environment variables and configuration
-console.log('═══════════════════════════════════════════════════════════');
-console.log('🔧 AUTHENTICATION CONFIGURATION');
-console.log('═══════════════════════════════════════════════════════════');
-console.log('📡 API Configuration:');
-console.log('   VITE_API_BASE (raw):', import.meta.env.VITE_API_BASE);
-console.log('   API_BASE (computed):', API_BASE);
-console.log('   Full API URL:', `${window.location.origin}${API_BASE}`);
-console.log('');
-console.log('🔐 Authentication Mode:');
-console.log('   VITE_USE_LOCAL_AUTH (raw):', import.meta.env.VITE_USE_LOCAL_AUTH);
-console.log('   USE_LOCAL_AUTH (computed):', USE_LOCAL_AUTH);
-console.log('   Using:', USE_LOCAL_AUTH ? '🔴 LOCAL STORAGE' : '🟢 API/DATABASE');
-console.log('');
-console.log('🌐 Environment:');
-console.log('   Current URL:', window.location.href);
-console.log('   Origin:', window.location.origin);
-console.log('   All VITE env vars:', Object.keys(import.meta.env).filter(k => k.startsWith('VITE_')));
-console.log('═══════════════════════════════════════════════════════════');
-
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [token, setToken] = useState(null);
+
+  // Debug logging for environment variables and configuration (on mount)
+  useEffect(() => {
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('🔧 AUTHENTICATION CONFIGURATION');
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('📡 API Configuration:');
+    console.log('   VITE_API_BASE (raw):', import.meta.env.VITE_API_BASE);
+    console.log('   API_BASE (computed):', API_BASE);
+    if (typeof window !== 'undefined') {
+      console.log('   Full API URL:', `${window.location.origin}${API_BASE}`);
+    }
+    console.log('');
+    console.log('🔐 Authentication Mode:');
+    console.log('   VITE_USE_LOCAL_AUTH (raw):', import.meta.env.VITE_USE_LOCAL_AUTH);
+    console.log('   USE_LOCAL_AUTH (computed):', USE_LOCAL_AUTH);
+    console.log('   Using:', USE_LOCAL_AUTH ? '🔴 LOCAL STORAGE' : '🟢 API/DATABASE');
+    console.log('');
+    console.log('🌐 Environment:');
+    if (typeof window !== 'undefined') {
+      console.log('   Current URL:', window.location.href);
+      console.log('   Origin:', window.location.origin);
+    }
+    console.log('   All VITE env vars:', Object.keys(import.meta.env).filter(k => k.startsWith('VITE_')));
+    console.log('═══════════════════════════════════════════════════════════');
+  }, []);
 
   // Load user session on mount
   useEffect(() => {
@@ -123,7 +129,9 @@ export const AuthProvider = ({ children }) => {
       const signupUrl = `${API_BASE}/auth/signup`;
       console.log('🌐 [CLIENT] Attempting API signup');
       console.log('   URL:', signupUrl);
-      console.log('   Full URL:', `${window.location.origin}${signupUrl}`);
+      if (typeof window !== 'undefined') {
+        console.log('   Full URL:', `${window.location.origin}${signupUrl}`);
+      }
       try {
         const response = await fetch(signupUrl, {
           method: 'POST',
